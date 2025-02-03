@@ -8,7 +8,6 @@ import queue
 import time
 import configparser
 import struct
-import re
 import os
 
 class LogPanel(tk.Frame):
@@ -23,13 +22,13 @@ class LogPanel(tk.Frame):
 
         # Заголовок панели с кнопкой сворачивания/разворачивания
         self.header = tk.Frame(self, bg='#222222')
-        self.toggle_button = tk.Button(self.header, text=f"{self.level} логи [-]", command=self.toggle,
+        self.toggle_button = tk.Button(self.header, text=f"{self.level} лог [-]", command=self.toggle,
                                        bg='#444444', fg='white')
         self.toggle_button.pack(side=tk.LEFT, padx=2, pady=2)
         self.header.pack(fill=tk.X)
 
         # Основной фрейм содержимого панели
-        self.content = tk.Frame(self, bg='#222222', width=20)
+        self.content = tk.Frame(self, bg='#222222')
         # Фрейм для фильтра и галочки автоскроллинга
         filter_frame = tk.Frame(self.content, bg='#222222')
         tk.Label(filter_frame, text="Фильтр:", bg='#222222', fg='white').pack(side=tk.LEFT, padx=2)
@@ -42,8 +41,7 @@ class LogPanel(tk.Frame):
         self.auto_scroll_cb.pack(side=tk.LEFT, padx=2)
         filter_frame.pack(fill=tk.X, pady=2)
 
-        # Текстовое поле с вертикальной прокруткой; фон почти чёрный.
-        # Параметр width задаёт минимальную ширину (в символах), чтобы панели были уже.
+        # Текстовое поле с вертикальной прокруткой; фон почти чёрный, минимальная ширина задана width.
         self.text_widget = tk.Text(self.content, bg='#111111', fg=self.text_color,
                                    wrap=tk.NONE, width=40)
         self.text_widget.config(state=tk.DISABLED)
@@ -55,11 +53,22 @@ class LogPanel(tk.Frame):
 
     def toggle(self):
         if self.collapsed:
+            # Разворачиваем: возвращаем content, сбрасываем фиксированную ширину
             self.content.pack(fill=tk.BOTH, expand=True)
-            self.toggle_button.config(text=f"{self.level} логи [-]")
+            self.toggle_button.config(text=f"{self.level} [-]")
+            # Передаем 0, чтобы ширина рассчитывалась автоматически
+            self.config(width=0)
+            self.pack_configure(expand=True)
+            self.pack_propagate(True)
         else:
+            # Сворачиваем: скрываем content и устанавливаем ширину равной ширине кнопки
             self.content.forget()
-            self.toggle_button.config(text=f"{self.level} логи [+]")
+            self.toggle_button.config(text=f"{self.level} [+]")
+            self.update_idletasks()  # вычисляем размеры
+            min_width = self.toggle_button.winfo_reqwidth()
+            self.config(width=min_width)
+            self.pack_propagate(False)
+            self.pack_configure(expand=False)
         self.collapsed = not self.collapsed
 
     def on_filter_enter(self, event):
@@ -95,7 +104,7 @@ class LogViewerApp:
         self.panels_frame = tk.Frame(master, bg='#111111')
         self.panels_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Создаём четыре панели для логов D, I, W, E с заданными цветами
+        # Создаем четыре панели для логов D, I, W, E с заданными цветами
         self.panels = {}
         self.panels['D'] = LogPanel(self.panels_frame, "D", "white", bd=1, relief=tk.SOLID)
         self.panels['I'] = LogPanel(self.panels_frame, "I", "green", bd=1, relief=tk.SOLID)
@@ -215,29 +224,18 @@ class LogViewerApp:
     def parse_line(self, raw_bytes):
         if not raw_bytes:
             return None
-        try:
-            level_char = chr(raw_bytes[0])
-        except Exception:
-            return ("D", raw_bytes.decode('utf-8', errors='replace'))
-        if level_char not in "DIWE":
+        first_byte = raw_bytes[0]
+        # Если строка начинается на ASCII-букву D, I, W или E, отображаем её как есть.
+        if first_byte in (ord('D'), ord('I'), ord('W'), ord('E')):
             try:
                 line_str = raw_bytes.decode('utf-8', errors='replace')
             except Exception:
                 line_str = str(raw_bytes)
-            return ("D", line_str)
-        # Если после символа идёт пробел – ожидаем формат "X (чч:мм:сс:xxx)"
-        if len(raw_bytes) > 1 and raw_bytes[1:2] == b' ':
-            try:
-                line_str = raw_bytes.decode('utf-8', errors='replace')
-            except Exception:
-                line_str = str(raw_bytes)
-            pattern = r'^([DIWE]) \((\d{2}):(\d{2}):(\d{2}):(\d{3})\)'
-            if re.match(pattern, line_str):
-                return (level_char, line_str)
-            else:
-                return ("D", line_str)
-        else:
-            # Иначе предполагаем, что сразу идут 4 байта с uint32_t timestamp (little-endian)
+            return (chr(first_byte), line_str)
+        # Если первый байт равен 0x11, 0x12, 0x13 или 0x14 – байт-кодированное время
+        elif first_byte in (0x11, 0x12, 0x13, 0x14):
+            level_mapping = {0x11: 'D', 0x12: 'I', 0x13: 'W', 0x14: 'E'}
+            level_char = level_mapping.get(first_byte, 'D')
             if len(raw_bytes) < 5:
                 try:
                     line_str = raw_bytes.decode('utf-8', errors='replace')
@@ -263,6 +261,13 @@ class LogViewerApp:
                 rest = str(raw_bytes[5:])
             line_str = f"{level_char} ({time_str}){rest}"
             return (level_char, line_str)
+        else:
+            # Если не соответствует ни одному из требований – выводим в журнал D
+            try:
+                line_str = raw_bytes.decode('utf-8', errors='replace')
+            except Exception:
+                line_str = str(raw_bytes)
+            return ("D", line_str)
 
     def poll_queue(self):
         while not self.queue.empty():
