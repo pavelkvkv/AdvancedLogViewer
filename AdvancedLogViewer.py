@@ -47,6 +47,9 @@ class LogPanel(tk.Frame):
         self.text_widget = tk.Text(self.content, bg='#111111', fg=self.text_color,
                                    wrap=tk.NONE, width=40)
         self.text_widget.config(state=tk.DISABLED)
+        # Разрешаем копирование текста по Ctrl+C
+        self.text_widget.bind("<Control-c>", self.copy_selection)
+        self.text_widget.bind("<Control-C>", self.copy_selection)
         self.scrollbar = tk.Scrollbar(self.content, command=self.text_widget.yview)
         self.text_widget.configure(yscrollcommand=self.scrollbar.set)
         self.text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -123,6 +126,17 @@ class LogPanel(tk.Frame):
             except Exception:
                 pass
 
+    def copy_selection(self, event=None):
+        """Копирует выделенный текст в буфер обмена"""
+        try:
+            selected_text = self.text_widget.get(tk.SEL_FIRST, tk.SEL_LAST)
+            self.text_widget.clipboard_clear()
+            self.text_widget.clipboard_append(selected_text)
+        except tk.TclError:
+            # Нет выделения
+            pass
+        return "break"  # Предотвращаем дальнейшую обработку события
+
     def clear_entries(self):
         self.entries.clear()
         self.text_widget.config(state=tk.NORMAL)
@@ -187,9 +201,8 @@ class LogViewerApp:
 
         self.load_settings()
 
-        # Настройка автосохранения: открываем файлы для каждого уровня в папке logs
+        # Настройка автосохранения: файлы будут созданы при очистке
         self.log_files = {}
-        self.setup_log_files()
 
         self.serial_port = None
         self.ser_thread = None
@@ -200,9 +213,23 @@ class LogViewerApp:
         master.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def setup_log_files(self):
-        logs_dir = os.path.join(os.getcwd(), "logs")
+        """Создаёт новые файлы логов и управляет их размером"""
+        # Закрываем старые файлы, если они открыты
+        for f in self.log_files.values():
+            if f:
+                try:
+                    f.close()
+                except Exception:
+                    pass
+        
+        logs_dir = os.path.join(os.getcwd(), "AdvancedLogViewer_Logs")
         if not os.path.exists(logs_dir):
             os.makedirs(logs_dir)
+        
+        # Управление размером логов
+        self.manage_log_size(logs_dir)
+        
+        # Создаём новые файлы для текущего сеанса
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         for level in ['D', 'I', 'W', 'E']:
             file_path = os.path.join(logs_dir, f"{timestamp_str}_{level}.log")
@@ -210,6 +237,72 @@ class LogViewerApp:
                 self.log_files[level] = open(file_path, "a", encoding="utf-8")
             except Exception as e:
                 self.log_files[level] = None
+    
+    def manage_log_size(self, logs_dir):
+        """Удаляет старые логи, если общий размер превышает 256 МБ, сохраняя последние 2 сеанса"""
+        try:
+            # Получаем список всех файлов логов
+            log_files = []
+            for filename in os.listdir(logs_dir):
+                if filename.endswith('.log'):
+                    filepath = os.path.join(logs_dir, filename)
+                    file_stat = os.stat(filepath)
+                    log_files.append({
+                        'path': filepath,
+                        'name': filename,
+                        'size': file_stat.st_size,
+                        'mtime': file_stat.st_mtime
+                    })
+            
+            if not log_files:
+                return
+            
+            # Сортируем файлы по времени модификации (новые в конце)
+            log_files.sort(key=lambda x: x['mtime'])
+            
+            # Группируем файлы по сеансам (по префиксу временной метки)
+            sessions = {}
+            for log_file in log_files:
+                # Извлекаем временную метку из имени файла (формат: YYYYMMDD_HHMMSS_X.log)
+                timestamp_prefix = '_'.join(log_file['name'].split('_')[:2])
+                if timestamp_prefix not in sessions:
+                    sessions[timestamp_prefix] = []
+                sessions[timestamp_prefix].append(log_file)
+            
+            # Получаем сеансы в хронологическом порядке
+            session_list = sorted(sessions.items(), key=lambda x: sessions[x[0]][0]['mtime'])
+            
+            # Вычисляем общий размер
+            total_size = sum(f['size'] for f in log_files)
+            max_size = 256 * 1024 * 1024  # 256 МБ
+            
+            if total_size > max_size:
+                # Определяем последние 2 сеанса (защищённые от удаления)
+                protected_sessions = set()
+                if len(session_list) >= 1:
+                    protected_sessions.add(session_list[-1][0])
+                if len(session_list) >= 2:
+                    protected_sessions.add(session_list[-2][0])
+                
+                # Удаляем старые сеансы, пока размер не станет меньше лимита
+                for session_key, session_files in session_list:
+                    if session_key in protected_sessions:
+                        continue
+                    
+                    if total_size <= max_size:
+                        break
+                    
+                    # Удаляем все файлы этого сеанса
+                    for log_file in session_files:
+                        try:
+                            os.remove(log_file['path'])
+                            total_size -= log_file['size']
+                        except Exception:
+                            pass
+        
+        except Exception:
+            # В случае ошибки продолжаем работу без управления размером
+            pass
 
     def get_serial_ports(self):
         ports = serial.tools.list_ports.comports()
@@ -349,6 +442,8 @@ class LogViewerApp:
     def clear_all_logs(self):
         for panel in self.panels.values():
             panel.clear_entries()
+        # Пересоздаём файлы логов при очистке
+        self.setup_log_files()
 
     def refresh_all_logs(self):
         for panel in self.panels.values():
