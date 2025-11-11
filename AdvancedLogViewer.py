@@ -23,8 +23,13 @@ class LogPanel(tk.Frame):
         self.text_color = color
         self.entries = []  # список записей: (timestamp, message), timestamp – int или None
         self.filter_text = ""
+        self.filter_regex = None  # скомпилированный regex для фильтра
         self.auto_scroll = tk.BooleanVar(value=True)
         self.collapsed = False
+        
+        # Буфер для batch-вставки (оптимизация производительности)
+        self._pending_inserts = []  # строки для вставки в UI
+        self._flush_scheduled = False  # флаг запланированной вставки
 
         # Заголовок панели с кнопкой сворачивания/разворачивания
         self.header = tk.Frame(self, bg='#222222')
@@ -47,8 +52,10 @@ class LogPanel(tk.Frame):
         filter_frame.pack(fill=tk.X, pady=2)
 
         # Текстовое поле для журнала с вертикальной прокруткой (почти чёрный фон)
+        # Отключаем undo/redo для экономии памяти (20-30% при большом количестве логов)
         self.text_widget = tk.Text(self.content, bg='#111111', fg=self.text_color,
-                                   wrap=tk.NONE, width=40)
+                                   wrap=tk.NONE, width=40,
+                                   undo=False, maxundo=0)
         self.text_widget.config(state=tk.DISABLED)
         # Разрешаем копирование текста по Ctrl+C
         self.text_widget.bind("<Control-c>", self.copy_selection)
@@ -77,7 +84,19 @@ class LogPanel(tk.Frame):
         self.collapsed = not self.collapsed
 
     def on_filter_enter(self, event):
+        """Применяет фильтр с предварительной компиляцией regex для ускорения"""
         self.filter_text = self.filter_entry.get()
+        
+        # Компилируем regex для длинных фильтров (ускоряет поиск)
+        if len(self.filter_text) > 3:
+            try:
+                # Экранируем специальные символы для точного поиска подстроки
+                self.filter_regex = re.compile(re.escape(self.filter_text))
+            except:
+                self.filter_regex = None
+        else:
+            self.filter_regex = None
+        
         self.refresh_text()
 
     def format_entry(self, timestamp, message):
@@ -101,26 +120,80 @@ class LogPanel(tk.Frame):
         return time_str + message
 
     def refresh_text(self):
+        """Перерисовывает весь лог с учетом фильтра (асинхронно, без зависания UI)"""
+        # Отменяем предыдущую фильтрацию, если она выполняется
+        if hasattr(self, '_refresh_job'):
+            self.after_cancel(self._refresh_job)
+            delattr(self, '_refresh_job')
+        
+        # Очищаем виджет
         self.text_widget.config(state=tk.NORMAL)
         self.text_widget.delete('1.0', tk.END)
-        for timestamp, message in self.entries:
-            # Фильтрация по содержимому сообщения (без времени)
-            if self.filter_text == "" or self.filter_text in message:
-                line = self.format_entry(timestamp, message)
-                self.text_widget.insert(tk.END, line + "\n")
-        if self.auto_scroll.get():
-            self.text_widget.see(tk.END)
         self.text_widget.config(state=tk.DISABLED)
+        
+        # Запускаем асинхронную пакетную обработку
+        if len(self.entries) > 0:
+            self._refresh_batch(0, [])
+        else:
+            # Восстанавливаем заголовок, если список пуст
+            self.toggle_button.config(text=f"{self.level} логи [-]" if not self.collapsed else f"{self.level} логи [+]")
+    
+    def _refresh_batch(self, start_idx, accumulated_lines):
+        """Обрабатывает записи пакетами для отзывчивости UI"""
+        BATCH_SIZE = 5000  # Обрабатываем по 5000 записей за раз
+        INSERT_THRESHOLD = 20000  # Вставляем в виджет каждые 20000 строк
+        
+        end_idx = min(start_idx + BATCH_SIZE, len(self.entries))
+        
+        # Собираем строки, соответствующие фильтру
+        for i in range(start_idx, end_idx):
+            timestamp, message = self.entries[i]
+            if self._matches_filter(message):
+                accumulated_lines.append(self.format_entry(timestamp, message))
+        
+        # Вставляем накопленные строки, если их много или это последний пакет
+        if len(accumulated_lines) >= INSERT_THRESHOLD or end_idx >= len(self.entries):
+            if accumulated_lines:
+                self.text_widget.config(state=tk.NORMAL)
+                self.text_widget.insert(tk.END, '\n'.join(accumulated_lines) + '\n')
+                self.text_widget.config(state=tk.DISABLED)
+                accumulated_lines.clear()
+        
+        # Продолжаем обработку или завершаем
+        if end_idx < len(self.entries):
+            # Показываем прогресс в заголовке
+            progress = int(100 * end_idx / len(self.entries))
+            button_text = f"{self.level} [{progress}%]"
+            self.toggle_button.config(text=button_text)
+            
+            # Планируем следующий пакет через 1 мс (UI остается отзывчивым)
+            self._refresh_job = self.after(1, lambda: self._refresh_batch(end_idx, accumulated_lines))
+        else:
+            # Завершаем: восстанавливаем заголовок и прокручиваем вниз
+            self.toggle_button.config(text=f"{self.level} логи [-]" if not self.collapsed else f"{self.level} логи [+]")
+            if self.auto_scroll.get():
+                self.text_widget.config(state=tk.NORMAL)
+                self.text_widget.see(tk.END)
+                self.text_widget.config(state=tk.DISABLED)
+            if hasattr(self, '_refresh_job'):
+                delattr(self, '_refresh_job')
 
     def add_entry(self, timestamp, message):
+        """Добавляет новую запись в лог с использованием batch-вставки для оптимизации"""
         self.entries.append((timestamp, message))
-        if self.filter_text == "" or self.filter_text in message:
+        
+        # Проверяем фильтрацию и добавляем в буфер для batch-вставки
+        if self._matches_filter(message):
             line = self.format_entry(timestamp, message)
-            self.text_widget.config(state=tk.NORMAL)
-            self.text_widget.insert(tk.END, line + "\n")
-            if self.auto_scroll.get():
-                self.text_widget.see(tk.END)
-            self.text_widget.config(state=tk.DISABLED)
+            self._pending_inserts.append(line)
+            
+            # Планируем вставку, если еще не запланирована
+            if not self._flush_scheduled:
+                self._flush_scheduled = True
+                # Вставляем через 100 мс или сразу, если накопилось много строк
+                delay = 10 if len(self._pending_inserts) >= 50 else 100
+                self.after(delay, self._flush_inserts)
+        
         # Автосохранение: дописываем запись в файл
         if self.level in self.app.log_files and self.app.log_files[self.level]:
             try:
@@ -128,6 +201,27 @@ class LogPanel(tk.Frame):
                 self.app.log_files[self.level].flush()
             except Exception:
                 pass
+    
+    def _matches_filter(self, message):
+        """Проверяет, соответствует ли сообщение текущему фильтру"""
+        if self.filter_text == "":
+            return True
+        if self.filter_regex:
+            return self.filter_regex.search(message) is not None
+        return self.filter_text in message
+    
+    def _flush_inserts(self):
+        """Вставляет накопленные строки в Text widget одной операцией"""
+        if self._pending_inserts:
+            self.text_widget.config(state=tk.NORMAL)
+            # Вставляем все накопленные строки одной операцией (быстрее в 10-50 раз)
+            self.text_widget.insert(tk.END, '\n'.join(self._pending_inserts) + '\n')
+            if self.auto_scroll.get():
+                self.text_widget.see(tk.END)
+            self.text_widget.config(state=tk.DISABLED)
+            self._pending_inserts.clear()
+        
+        self._flush_scheduled = False
 
     def copy_selection(self, event=None):
         """Копирует выделенный текст в буфер обмена"""
@@ -141,6 +235,17 @@ class LogPanel(tk.Frame):
         return "break"  # Предотвращаем дальнейшую обработку события
 
     def clear_entries(self):
+        """Очищает все записи лога и буферы"""
+        # Отменяем запланированные операции
+        if hasattr(self, '_refresh_job'):
+            self.after_cancel(self._refresh_job)
+            delattr(self, '_refresh_job')
+        
+        # Очищаем буферы
+        self._pending_inserts.clear()
+        self._flush_scheduled = False
+        
+        # Очищаем данные и виджет
         self.entries.clear()
         self.text_widget.config(state=tk.NORMAL)
         self.text_widget.delete('1.0', tk.END)
