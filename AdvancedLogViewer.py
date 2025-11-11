@@ -12,6 +12,9 @@ import re
 import os
 from datetime import datetime
 
+# Версия приложения
+__version__ = "1.2"
+
 class LogPanel(tk.Frame):
     def __init__(self, master, app, level, color, *args, **kwargs):
         super().__init__(master, *args, **kwargs)
@@ -146,7 +149,7 @@ class LogPanel(tk.Frame):
 class LogViewerApp:
     def __init__(self, master):
         self.master = master
-        master.title("Логгер UART")
+        master.title(f"Логгер UART v{__version__}")
         master.configure(bg='#111111')
 
         # Глобальная настройка отображения времени: "full", "short", "none"
