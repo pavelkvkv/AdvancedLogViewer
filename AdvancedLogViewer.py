@@ -149,7 +149,7 @@ class LogPanel(tk.Frame):
 class LogViewerApp:
     def __init__(self, master):
         self.master = master
-        master.title(f"Логгер UART v{__version__}")
+        master.title(f"Advanced Log Viewer v{__version__}")
         master.configure(bg='#111111')
 
         # Глобальная настройка отображения времени: "full", "short", "none"
