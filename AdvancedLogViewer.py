@@ -13,7 +13,7 @@ import os
 from datetime import datetime
 
 # Версия приложения
-__version__ = "1.2"
+__version__ = "1.3"
 
 class LogPanel(tk.Frame):
     def __init__(self, master, app, level, color, *args, **kwargs):
@@ -30,6 +30,7 @@ class LogPanel(tk.Frame):
         # Буфер для batch-вставки (оптимизация производительности)
         self._pending_inserts = []  # строки для вставки в UI
         self._flush_scheduled = False  # флаг запланированной вставки
+        self._is_refreshing = False  # флаг активной перерисовки (блокирует batch-вставку)
 
         # Заголовок панели с кнопкой сворачивания/разворачивания
         self.header = tk.Frame(self, bg='#222222')
@@ -126,6 +127,14 @@ class LogPanel(tk.Frame):
             self.after_cancel(self._refresh_job)
             delattr(self, '_refresh_job')
         
+        # ВАЖНО: блокируем batch-вставку на время refresh
+        self._is_refreshing = True
+        
+        # Отменяем запланированную batch-вставку, если она есть
+        if self._flush_scheduled:
+            # Буфер сохраняем - вставим после завершения refresh
+            self._flush_scheduled = False
+        
         # Очищаем виджет
         self.text_widget.config(state=tk.NORMAL)
         self.text_widget.delete('1.0', tk.END)
@@ -137,6 +146,7 @@ class LogPanel(tk.Frame):
         else:
             # Восстанавливаем заголовок, если список пуст
             self.toggle_button.config(text=f"{self.level} логи [-]" if not self.collapsed else f"{self.level} логи [+]")
+            self._is_refreshing = False
     
     def _refresh_batch(self, start_idx, accumulated_lines):
         """Обрабатывает записи пакетами для отзывчивости UI"""
@@ -177,6 +187,13 @@ class LogPanel(tk.Frame):
                 self.text_widget.config(state=tk.DISABLED)
             if hasattr(self, '_refresh_job'):
                 delattr(self, '_refresh_job')
+            
+            # ВАЖНО: разблокируем batch-вставку после завершения refresh
+            self._is_refreshing = False
+            
+            # Вставляем накопленные во время refresh логи (если есть)
+            if self._pending_inserts:
+                self._flush_inserts()
 
     def add_entry(self, timestamp, message):
         """Добавляет новую запись в лог с использованием batch-вставки для оптимизации"""
@@ -212,6 +229,14 @@ class LogPanel(tk.Frame):
     
     def _flush_inserts(self):
         """Вставляет накопленные строки в Text widget одной операцией"""
+        # ВАЖНО: не вставляем во время refresh_text (иначе race condition)
+        if self._is_refreshing:
+            # Перепланируем вставку после завершения refresh
+            if not self._flush_scheduled:
+                self._flush_scheduled = True
+                self.after(50, self._flush_inserts)
+            return
+        
         if self._pending_inserts:
             self.text_widget.config(state=tk.NORMAL)
             # Вставляем все накопленные строки одной операцией (быстрее в 10-50 раз)
@@ -240,6 +265,9 @@ class LogPanel(tk.Frame):
         if hasattr(self, '_refresh_job'):
             self.after_cancel(self._refresh_job)
             delattr(self, '_refresh_job')
+        
+        # Сбрасываем флаги
+        self._is_refreshing = False
         
         # Очищаем буферы
         self._pending_inserts.clear()
