@@ -344,6 +344,8 @@ class LogViewerApp:
         self.ser_thread = None
         self.running = False
         self.queue = queue.Queue()
+        self.last_serial_error_time = 0
+        self.serial_error_throttle_secs = 5
 
         self.master.after(100, self.poll_queue)
         master.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -514,7 +516,11 @@ class LogViewerApp:
                 else:
                     time.sleep(0.01)
             except Exception as e:
-                self.queue.put(("D", None, "Ошибка чтения: " + str(e)))
+                current_time = time.time()
+                if current_time - self.last_serial_error_time >= self.serial_error_throttle_secs:
+                    self.last_serial_error_time = current_time
+                    self.queue.put(("D", None, "Ошибка чтения: " + str(e)))
+                time.sleep(0.5)
 
     def parse_line(self, raw_bytes):
         if not raw_bytes:
