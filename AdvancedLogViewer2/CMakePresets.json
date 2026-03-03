@@ -1,0 +1,64 @@
+{
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "system",
+            "displayName": "System Qt (dynamic)",
+            "binaryDir": "${sourceDir}/build/system",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "standalone",
+            "displayName": "Standalone (static Qt)",
+            "binaryDir": "${sourceDir}/build/standalone",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_EXE_LINKER_FLAGS": "-static"
+            }
+        },
+        {
+            "name": "sanitize",
+            "displayName": "Sanitizers (ASan + UBSan)",
+            "binaryDir": "${sourceDir}/build/sanitize",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release (optimized, stripped)",
+            "binaryDir": "${sourceDir}/build/release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_CXX_FLAGS": "-O2 -DNDEBUG",
+                "CMAKE_EXE_LINKER_FLAGS": "-s"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "system",
+            "configurePreset": "system"
+        },
+        {
+            "name": "standalone",
+            "configurePreset": "standalone"
+        },
+        {
+            "name": "sanitize",
+            "configurePreset": "sanitize"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release"
+        }
+    ]
+}
