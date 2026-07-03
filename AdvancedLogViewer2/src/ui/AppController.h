@@ -79,7 +79,6 @@ private:
     WatchdogTimer *m_wdt = nullptr;
     QTimer *m_heartbeatTimer = nullptr;
     std::shared_ptr<WatchdogTimer::Token> m_recvToken;
-    std::shared_ptr<WatchdogTimer::Token> m_distToken;
 
     ConnectionDef m_activeConnection;
     bool m_pipelineRunning = false;

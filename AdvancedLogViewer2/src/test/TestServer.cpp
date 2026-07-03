@@ -126,6 +126,19 @@ QString TestServer::processCommand(const QString &line)
         return QStringLiteral("OK %1").arg(m_isConnected() ? 1 : 0);
     }
 
+    if (cmd == QLatin1String("get_geometry")) {
+        if (parts.size() < 2) {
+            return QStringLiteral("ERR: usage: get_geometry <window_id>");
+        }
+        auto *win = m_windows.value(parts[1]);
+        if (!win) {
+            return QStringLiteral("ERR: window not found: %1").arg(parts[1]);
+        }
+        const QRect g = win->geometry();
+        return QStringLiteral("OK %1 %2 %3 %4")
+            .arg(g.x()).arg(g.y()).arg(g.width()).arg(g.height());
+    }
+
     if (cmd == QLatin1String("get_line_count")) {
         if (parts.size() < 2) {
             return QStringLiteral("ERR: usage: get_line_count <window_id>");

@@ -421,6 +421,12 @@ Profile SettingsWindow::editorToProfile() const
 {
     Profile p;
     p.name = m_currentProfileName;
+    // Сохранить поля, не редактируемые в этом окне (расположение окон), из
+    // уже сохранённого профиля — иначе «Запустить»/«Сохранить» затирали бы
+    // layout, записанный кнопкой «Запомнить расположение».
+    if (m_profileMgr->hasProfile(m_currentProfileName)) {
+        p.layout = m_profileMgr->profile(m_currentProfileName).layout;
+    }
 
     p.connection.type = m_connType->currentText();
     p.connection.primaryPort = currentPortName();

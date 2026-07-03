@@ -27,6 +27,7 @@ private slots:
     void portComboSavesDeviceName_notLabel();
     void editsSurviveProfileSwitch();
     void logDirStatus_reflectsPath();
+    void layoutSurvivesEditorSave();
 
 private:
     static Profile makeProfileWithWindow(const QString &name);
@@ -179,6 +180,31 @@ void TestSettingsWindow::logDirStatus_reflectsPath()
     // Заведомо недоступный путь — ошибка.
     edit->setText(QStringLiteral("/proc/nonexistent_alv2_dir/logs"));
     QVERIFY(status->text().contains(QStringLiteral("Ошибка")));
+}
+
+void TestSettingsWindow::layoutSurvivesEditorSave()
+{
+    // Регрессия: «Запустить»/«Сохранить» затирали расположение окон, записанное
+    // кнопкой «Запомнить расположение», т.к. editorToProfile не сохранял layout.
+    ProfileManager pm;
+    Profile p = makeProfileWithWindow(QStringLiteral("L"));
+    WindowLayout wl;
+    wl.windowId = QStringLiteral("win_a");
+    wl.geometry = QRect(10, 20, 640, 480);
+    p.layout.append(wl);
+    pm.saveProfile(p);
+    pm.setActiveProfile(QStringLiteral("L"));
+
+    Settings settings;
+    SettingsWindow win(&pm, &settings);
+
+    auto *save = win.findChild<QPushButton *>(QStringLiteral("btnSaveProfile"));
+    QVERIFY(save);
+    save->click(); // onSaveProfile -> editorToProfile -> saveProfile
+
+    const Profile saved = pm.profile(QStringLiteral("L"));
+    QCOMPARE(saved.layout.size(), 1);
+    QCOMPARE(saved.layout.first().geometry, QRect(10, 20, 640, 480));
 }
 
 QTEST_MAIN(TestSettingsWindow)

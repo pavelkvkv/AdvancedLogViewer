@@ -39,21 +39,16 @@ void AppController::startWatchdog()
     }
     m_wdt = new WatchdogTimer(this);
 
-    // LogReceiver сам шлёт heartbeat из своего потока (таймером, см.
-    // LogReceiver::start) — короткий таймаут ловит реальный зависон потока
-    // приёма, а не простой без трафика.
+    // Мониторим только поток приёма (LogReceiver сам шлёт heartbeat из своего
+    // потока таймером — ловим реальный зависон I/O, а не простой без трафика).
+    // GUI-поток (LogDistributor/отрисовка) НЕ регистрируем: под наплывом логов
+    // event-loop законно бывает занят секундами, и это не повод убивать
+    // работающее приложение. От утечки памяти защищает монитор памяти WDT.
     m_recvToken = m_wdt->registerComponent(QStringLiteral("LogReceiver"), 5000);
-    // LogDistributor работает в GUI-потоке; heartbeat гоним таймером GUI.
-    // Таймаут щедрый: кратковременные подвисания UI под наплывом логов не
-    // должны убивать приложение — только настоящая заморозка event-loop.
-    m_distToken = m_wdt->registerComponent(QStringLiteral("LogDistributor"), 15000);
 
     m_heartbeatTimer = new QTimer(this);
     m_heartbeatTimer->setInterval(1000);
     connect(m_heartbeatTimer, &QTimer::timeout, this, [this]() {
-        if (m_distToken) {
-            m_distToken->heartbeat();
-        }
         // Когда источник отключён (приёмника нет) — не даём его токену
         // «протухнуть», иначе WDT завершит приложение через таймаут.
         if (!m_pipelineRunning && m_recvToken) {
@@ -105,13 +100,10 @@ void AppController::ensurePipeline(const ConnectionDef &conn)
             [this](const QString &msg) { emit statusMessage(msg); });
 
     startWatchdog();
-    // Токены переиспользуются между пересборками конвейера — назначаем их
-    // текущим компонентам при каждом ensurePipeline.
+    // Токен переиспользуется между пересборками конвейера — назначаем его
+    // текущему приёмнику при каждом ensurePipeline.
     if (m_recvToken) {
         m_receiver->setWdtToken(m_recvToken);
-    }
-    if (m_distToken) {
-        m_distributor->setWdtToken(m_distToken);
     }
 
     m_receiver->start();
