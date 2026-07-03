@@ -28,8 +28,6 @@ signals:
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
-    void mouseMoveEvent(QMouseEvent *event) override;
-    void mouseReleaseEvent(QMouseEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
 
 private:
@@ -44,6 +42,4 @@ private:
 
     QColor m_headerColor;
     bool m_autoScroll = true;
-    bool m_dragging = false;
-    QPoint m_dragStart;
 };

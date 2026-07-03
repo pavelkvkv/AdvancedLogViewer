@@ -13,6 +13,7 @@
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSerialPortInfo>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -26,10 +27,18 @@ SettingsWindow::SettingsWindow(ProfileManager *pm, Settings *settings,
     , m_settings(settings)
 {
     setWindowTitle(tr("Параметры"));
-    resize(750, 500);
+    // Профиль-вкладка обёрнута в скролл (ниже), поэтому окно можно свободно
+    // уменьшать без наложения виджетов и ресайза за любой край.
+    setMinimumSize(560, 360);
+    resize(820, 760);
+    setSizeGripEnabled(true); // уголок для надёжного изменения размера
 
     auto *tabs = new QTabWidget(this);
-    tabs->addTab(createProfileTab(), tr("Профиль"));
+    auto *profileScroll = new QScrollArea;
+    profileScroll->setWidgetResizable(true);
+    profileScroll->setFrameShape(QFrame::NoFrame);
+    profileScroll->setWidget(createProfileTab());
+    tabs->addTab(profileScroll, tr("Профиль"));
     tabs->addTab(createSettingsTab(), tr("Настройки"));
     tabs->addTab(createAboutTab(), tr("О программе"));
 
@@ -211,7 +220,7 @@ QWidget *SettingsWindow::createProfileTab()
     // Двойной клик по ячейке цвета открывает палитру.
     connect(m_windowTable, &QTableWidget::cellDoubleClicked, this,
             &SettingsWindow::pickWindowColor);
-    winLayout->addWidget(m_windowTable, 1);
+    winLayout->addWidget(m_windowTable);
 
     auto *winBtns = new QHBoxLayout;
     auto *winAdd = new QPushButton(tr("Добавить окно"));
@@ -230,7 +239,8 @@ QWidget *SettingsWindow::createProfileTab()
     winBtns->addWidget(winOpen);
     winLayout->addLayout(winBtns);
 
-    rightPanel->addWidget(winGroup, 1);
+    rightPanel->addWidget(winGroup);
+    rightPanel->addStretch(); // прижать кнопки действий книзу, таблицу — компактно
 
     // ------------------------- Нижняя панель действий -------------------------
     auto *actionRow = new QHBoxLayout;

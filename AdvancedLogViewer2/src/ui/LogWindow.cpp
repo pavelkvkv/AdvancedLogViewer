@@ -14,6 +14,7 @@
 #include <QScrollBar>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QWindow>
 
 LogWindow::LogWindow(LogStore *store, const WindowDef &def, QWidget *parent)
     : QWidget(parent, Qt::FramelessWindowHint | Qt::Window)
@@ -29,7 +30,10 @@ LogWindow::LogWindow(LogStore *store, const WindowDef &def, QWidget *parent)
     m_delegate = new LogDelegate(def.textColor, this);
 
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(1, 0, 1, 1);
+    // Рамка kBorder со всех сторон — зона захвата для resize (события мыши по
+    // ней достаются окну, а не QListView). Верхняя рамка над TitleBar даёт
+    // изменение размера сверху, не мешая перетаскиванию за заголовок.
+    layout->setContentsMargins(kBorder, kBorder, kBorder, kBorder);
     layout->setSpacing(0);
 
     m_titleBar = new TitleBar(def.title, def.headerColor, this);
@@ -87,12 +91,11 @@ void LogWindow::clearWindowFilter()
 void LogWindow::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
-        auto edge = hitTest(event->pos());
-        if (edge != None) {
-            m_resizing = true;
-            m_resizeEdge = edge;
-            m_resizeStart = event->globalPosition().toPoint();
-            m_resizeGeom = geometry();
+        Qt::Edges edges = edgesAt(event->pos());
+        if (edges != Qt::Edges() && windowHandle()) {
+            // Изменение размера отдаём композитору (работает и на Wayland,
+            // и на X11) — ручной пересчёт геометрии был источником багов.
+            windowHandle()->startSystemResize(edges);
             event->accept();
             return;
         }
@@ -102,44 +105,10 @@ void LogWindow::mousePressEvent(QMouseEvent *event)
 
 void LogWindow::mouseMoveEvent(QMouseEvent *event)
 {
-    if (m_resizing) {
-        QPoint delta = event->globalPosition().toPoint() - m_resizeStart;
-        QRect newGeom = m_resizeGeom;
-
-        if (m_resizeEdge & Right) {
-            newGeom.setWidth(qMax(kMinWidth, m_resizeGeom.width() + delta.x()));
-        }
-        if (m_resizeEdge & Bottom) {
-            newGeom.setHeight(qMax(kMinHeight, m_resizeGeom.height() + delta.y()));
-        }
-        if (m_resizeEdge & Left) {
-            int newWidth = qMax(kMinWidth, m_resizeGeom.width() - delta.x());
-            newGeom.setLeft(m_resizeGeom.right() - newWidth);
-        }
-        if (m_resizeEdge & Top) {
-            int newHeight = qMax(kMinHeight, m_resizeGeom.height() - delta.y());
-            newGeom.setTop(m_resizeGeom.bottom() - newHeight);
-        }
-
-        setGeometry(newGeom);
-        event->accept();
-        return;
+    if (!(event->buttons() & Qt::LeftButton)) {
+        setCursorForEdges(edgesAt(event->pos()));
     }
-
-    auto edge = hitTest(event->pos());
-    updateCursor(edge);
     QWidget::mouseMoveEvent(event);
-}
-
-void LogWindow::mouseReleaseEvent(QMouseEvent *event)
-{
-    if (event->button() == Qt::LeftButton && m_resizing) {
-        m_resizing = false;
-        m_resizeEdge = None;
-        event->accept();
-        return;
-    }
-    QWidget::mouseReleaseEvent(event);
 }
 
 void LogWindow::wheelEvent(QWheelEvent *event)
@@ -209,51 +178,41 @@ void LogWindow::keyPressEvent(QKeyEvent *event)
     QWidget::keyPressEvent(event);
 }
 
-void LogWindow::resizeEvent(QResizeEvent *event)
+Qt::Edges LogWindow::edgesAt(const QPoint &pos) const
 {
-    QWidget::resizeEvent(event);
+    Qt::Edges edges;
+    if (pos.x() <= kBorder) {
+        edges |= Qt::LeftEdge;
+    }
+    if (pos.x() >= width() - kBorder) {
+        edges |= Qt::RightEdge;
+    }
+    if (pos.y() <= kBorder) {
+        edges |= Qt::TopEdge;
+    }
+    if (pos.y() >= height() - kBorder) {
+        edges |= Qt::BottomEdge;
+    }
+    return edges;
 }
 
-LogWindow::ResizeEdge LogWindow::hitTest(const QPoint &pos) const
+void LogWindow::setCursorForEdges(Qt::Edges edges)
 {
-    int flags = None;
-    if (pos.x() < kResizeMargin) {
-        flags |= Left;
-    }
-    if (pos.x() > width() - kResizeMargin) {
-        flags |= Right;
-    }
-    if (pos.y() < kResizeMargin) {
-        flags |= Top;
-    }
-    if (pos.y() > height() - kResizeMargin) {
-        flags |= Bottom;
-    }
-    return static_cast<ResizeEdge>(flags);
-}
+    const bool left = edges & Qt::LeftEdge;
+    const bool right = edges & Qt::RightEdge;
+    const bool top = edges & Qt::TopEdge;
+    const bool bottom = edges & Qt::BottomEdge;
 
-void LogWindow::updateCursor(ResizeEdge edge)
-{
-    switch (edge) {
-    case TopLeft:
-    case BottomRight:
+    if ((left && top) || (right && bottom)) {
         setCursor(Qt::SizeFDiagCursor);
-        break;
-    case TopRight:
-    case BottomLeft:
+    } else if ((right && top) || (left && bottom)) {
         setCursor(Qt::SizeBDiagCursor);
-        break;
-    case Left:
-    case Right:
+    } else if (left || right) {
         setCursor(Qt::SizeHorCursor);
-        break;
-    case Top:
-    case Bottom:
+    } else if (top || bottom) {
         setCursor(Qt::SizeVerCursor);
-        break;
-    default:
+    } else {
         unsetCursor();
-        break;
     }
 }
 

@@ -34,26 +34,13 @@ signals:
 protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
-    void mouseReleaseEvent(QMouseEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
-    void resizeEvent(QResizeEvent *event) override;
 
 private:
-    enum ResizeEdge {
-        None = 0,
-        Left = 1,
-        Right = 2,
-        Top = 4,
-        Bottom = 8,
-        TopLeft = Top | Left,
-        TopRight = Top | Right,
-        BottomLeft = Bottom | Left,
-        BottomRight = Bottom | Right
-    };
-
-    ResizeEdge hitTest(const QPoint &pos) const;
-    void updateCursor(ResizeEdge edge);
+    // Определяет края окна под курсором (в пределах рамки kBorder).
+    Qt::Edges edgesAt(const QPoint &pos) const;
+    void setCursorForEdges(Qt::Edges edges);
     void scrollToEnd();
 
     void onAutoScrollToggled(bool enabled);
@@ -74,12 +61,10 @@ private:
     QListView *m_listView;
 
     bool m_autoScroll = true;
-    bool m_resizing = false;
-    ResizeEdge m_resizeEdge = None;
-    QPoint m_resizeStart;
-    QRect m_resizeGeom;
 
-    static constexpr int kResizeMargin = 5;
+    // Рамка захвата для изменения размера (окно frameless): по ней проходят
+    // события мыши окна, а не дочернего QListView.
+    static constexpr int kBorder = 6;
     static constexpr int kMinWidth = 320;
     static constexpr int kMinHeight = 200;
     static constexpr int kScrollLines = 3;

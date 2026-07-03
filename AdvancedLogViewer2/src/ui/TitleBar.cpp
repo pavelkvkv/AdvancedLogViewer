@@ -4,6 +4,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QStyle>
+#include <QWindow>
 
 TitleBar::TitleBar(const QString &title, const QColor &headerColor,
                    QWidget *parent)
@@ -71,26 +72,15 @@ void TitleBar::setAutoScrollEnabled(bool enabled)
 void TitleBar::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
-        m_dragging = true;
-        m_dragStart = event->globalPosition().toPoint() - window()->frameGeometry().topLeft();
-        event->accept();
+        // Перетаскивание окна отдаём композитору: window()->move() на Wayland
+        // не работает (клиент не может сам себя позиционировать).
+        if (QWindow *w = window()->windowHandle()) {
+            w->startSystemMove();
+            event->accept();
+            return;
+        }
     }
-}
-
-void TitleBar::mouseMoveEvent(QMouseEvent *event)
-{
-    if (m_dragging && (event->buttons() & Qt::LeftButton)) {
-        window()->move(event->globalPosition().toPoint() - m_dragStart);
-        event->accept();
-    }
-}
-
-void TitleBar::mouseReleaseEvent(QMouseEvent *event)
-{
-    if (event->button() == Qt::LeftButton) {
-        m_dragging = false;
-        event->accept();
-    }
+    QWidget::mousePressEvent(event);
 }
 
 void TitleBar::paintEvent(QPaintEvent * /*event*/)
