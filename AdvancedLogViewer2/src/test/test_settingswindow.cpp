@@ -5,6 +5,9 @@
 #include "SettingsWindow.h"
 
 #include <QComboBox>
+#include <QDir>
+#include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
 #include <QStandardPaths>
@@ -23,6 +26,7 @@ private slots:
     void runButton_opensProfileWindows();
     void portComboSavesDeviceName_notLabel();
     void editsSurviveProfileSwitch();
+    void logDirStatus_reflectsPath();
 
 private:
     static Profile makeProfileWithWindow(const QString &name);
@@ -151,6 +155,30 @@ void TestSettingsWindow::editsSurviveProfileSwitch()
     // Правка не потерялась — сохранилась в профиль и восстановилась в редакторе.
     QCOMPARE(pm.profile(QStringLiteral("A")).connection.baudrate, 2000000);
     QCOMPARE(baud->currentText(), QStringLiteral("2000000"));
+}
+
+void TestSettingsWindow::logDirStatus_reflectsPath()
+{
+    ProfileManager pm;
+    Settings settings;
+    SettingsWindow win(&pm, &settings);
+
+    auto *edit = win.findChild<QLineEdit *>(QStringLiteral("logDirEdit"));
+    auto *status = win.findChild<QLabel *>(QStringLiteral("logDirStatus"));
+    QVERIFY(edit);
+    QVERIFY(status);
+
+    // Пустой путь — запись отключена.
+    edit->setText(QString());
+    QVERIFY(status->text().contains(QStringLiteral("отключена")));
+
+    // Существующий каталог с правом записи — зелёный статус с местом/файлами.
+    edit->setText(QDir::tempPath());
+    QVERIFY(status->text().contains(QStringLiteral("свободно")));
+
+    // Заведомо недоступный путь — ошибка.
+    edit->setText(QStringLiteral("/proc/nonexistent_alv2_dir/logs"));
+    QVERIFY(status->text().contains(QStringLiteral("Ошибка")));
 }
 
 QTEST_MAIN(TestSettingsWindow)

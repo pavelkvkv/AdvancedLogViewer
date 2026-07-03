@@ -50,6 +50,16 @@ void LogReceiver::start()
         } else {
             startUdp();
         }
+        // Периодический heartbeat из потока приёма: WDT детектирует реальный
+        // зависон этого потока, а простой без трафика сбоем не считается.
+        m_heartbeatTimer = new QTimer(this);
+        m_heartbeatTimer->setInterval(1000);
+        connect(m_heartbeatTimer, &QTimer::timeout, this, [this]() {
+            if (m_wdtToken) {
+                m_wdtToken->heartbeat();
+            }
+        });
+        m_heartbeatTimer->start();
     }, Qt::QueuedConnection);
 }
 
@@ -115,6 +125,11 @@ void LogReceiver::startUdp()
 
 void LogReceiver::stopInternal()
 {
+    if (m_heartbeatTimer) {
+        m_heartbeatTimer->stop();
+        delete m_heartbeatTimer;
+        m_heartbeatTimer = nullptr;
+    }
     if (m_fallbackTimer) {
         m_fallbackTimer->stop();
         delete m_fallbackTimer;

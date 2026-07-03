@@ -66,6 +66,8 @@ LogWindow::LogWindow(LogStore *store, const WindowDef &def, QWidget *parent)
     connect(m_titleBar, &TitleBar::settingsClicked, this, &LogWindow::settingsRequested);
     connect(m_titleBar, &TitleBar::closeClicked, this, &LogWindow::onCloseClicked);
     connect(m_titleBar, &TitleBar::autoScrollToggled, this, &LogWindow::onAutoScrollToggled);
+    connect(m_titleBar, &TitleBar::connectionToggleClicked,
+            this, &LogWindow::connectionToggleRequested);
 
     connect(m_filterBar, &FilterBar::filterApplied, this, &LogWindow::onFilterApplied);
     connect(m_filterBar, &FilterBar::filterCleared, this, &LogWindow::onFilterCleared);
@@ -81,6 +83,11 @@ LogWindow::~LogWindow() = default;
 void LogWindow::setWindowFilter(const QString &filter)
 {
     m_model->setFilter(filter);
+}
+
+void LogWindow::setConnected(bool connected)
+{
+    m_titleBar->setConnected(connected);
 }
 
 void LogWindow::clearWindowFilter()

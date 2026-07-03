@@ -4,9 +4,12 @@
 
 #include <QApplication>
 #include <QColorDialog>
+#include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFontDialog>
 #include <QFormLayout>
+#include <QStorageInfo>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -686,6 +689,7 @@ QWidget *SettingsWindow::createSettingsTab()
     auto *logDirRow = new QHBoxLayout;
     logDirRow->addWidget(new QLabel(tr("Путь к логам:")));
     m_logDirEdit = new QLineEdit;
+    m_logDirEdit->setObjectName(QStringLiteral("logDirEdit"));
     logDirRow->addWidget(m_logDirEdit);
     auto *browseBtn = new QPushButton(QStringLiteral("..."));
     browseBtn->setFixedWidth(32);
@@ -698,6 +702,15 @@ QWidget *SettingsWindow::createSettingsTab()
     });
     logDirRow->addWidget(browseBtn);
     layout->addLayout(logDirRow);
+
+    // Статус каталога логов: существование, права записи, свободное место,
+    // число уже накопленных файлов.
+    m_logDirStatus = new QLabel;
+    m_logDirStatus->setObjectName(QStringLiteral("logDirStatus"));
+    m_logDirStatus->setWordWrap(true);
+    layout->addWidget(m_logDirStatus);
+    connect(m_logDirEdit, &QLineEdit::textChanged, this,
+            &SettingsWindow::updateLogDirStatus);
 
     // Макс. строк
     auto *maxRow = new QHBoxLayout;
@@ -763,6 +776,8 @@ void SettingsWindow::loadSettings()
     m_fontLabel->setText(QStringLiteral("%1, %2pt")
                              .arg(m_selectedFont.family())
                              .arg(m_selectedFont.pointSize()));
+
+    updateLogDirStatus();
 }
 
 void SettingsWindow::saveSettings()
@@ -772,6 +787,70 @@ void SettingsWindow::saveSettings()
     m_settings->setLogDir(m_logDirEdit->text());
     m_settings->setMaxLines(m_maxLinesSpin->value());
     m_settings->setLogFont(m_selectedFont);
+}
+
+void SettingsWindow::updateLogDirStatus()
+{
+    const auto setStatus = [this](const QString &text, const QString &color) {
+        m_logDirStatus->setText(text);
+        m_logDirStatus->setStyleSheet(QStringLiteral("color:%1;").arg(color));
+    };
+    const QString kGreen = QStringLiteral("#4CAF50");
+    const QString kRed = QStringLiteral("#E05656");
+    const QString kOrange = QStringLiteral("#E0A030");
+    const QString kGrey = QStringLiteral("#999999");
+
+    const QString path = m_logDirEdit->text().trimmed();
+    if (path.isEmpty()) {
+        setStatus(tr("Запись логов в файлы отключена (путь не задан)."), kGrey);
+        return;
+    }
+
+    QDir dir(path);
+    const bool exists = dir.exists();
+    // Проверяем права записи по самому каталогу (если есть) или по родителю
+    // (куда каталог будет создан при первом логе).
+    const QString checkPath = exists ? path : QFileInfo(path).absolutePath();
+    const QFileInfo checkInfo(checkPath);
+
+    if (!checkInfo.exists()) {
+        setStatus(tr("Ошибка: родительский каталог не существует: %1").arg(checkPath),
+                  kRed);
+        return;
+    }
+    if (!checkInfo.isWritable()) {
+        setStatus(tr("Ошибка: нет прав на запись в %1").arg(checkPath), kRed);
+        return;
+    }
+
+    QStringList parts;
+    parts << (exists ? tr("папка есть")
+                     : tr("папки нет — будет создана при первом логе"));
+
+    // Свободное место.
+    QStorageInfo storage(checkPath);
+    const double freeGb =
+        static_cast<double>(storage.bytesAvailable()) / (1024.0 * 1024 * 1024);
+    parts << tr("свободно %1 ГБ").arg(freeGb, 0, 'f', freeGb < 10 ? 2 : 1);
+
+    // Уже накопленные файлы логов.
+    if (exists) {
+        const auto files =
+            dir.entryInfoList({QStringLiteral("*.log")}, QDir::Files);
+        qint64 total = 0;
+        for (const auto &f : files) {
+            total += f.size();
+        }
+        parts << tr("файлов логов: %1 (%2 МБ)")
+                     .arg(files.size())
+                     .arg(static_cast<double>(total) / (1024.0 * 1024), 0, 'f', 1);
+    }
+
+    if (freeGb < 0.5) {
+        setStatus(tr("Мало места на накопителе! ") + parts.join(tr(", ")), kOrange);
+    } else {
+        setStatus(parts.join(tr(", ")), kGreen);
+    }
 }
 
 // =============================================================================

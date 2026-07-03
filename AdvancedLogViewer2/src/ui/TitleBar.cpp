@@ -24,6 +24,13 @@ TitleBar::TitleBar(const QString &title, const QColor &headerColor,
 
     layout->addStretch();
 
+    // Кнопка подключения/отключения источника (освобождает порт без закрытия).
+    m_connectBtn = makeButton(QStringLiteral("⏻"), tr("Отключить источник"));
+    connect(m_connectBtn, &QPushButton::clicked,
+            this, &TitleBar::connectionToggleClicked);
+    layout->addWidget(m_connectBtn);
+    layout->addSpacing(8);
+
     m_autoScrollBtn = makeButton(QStringLiteral("\u2193"), tr("Автопрокрутка"));
     m_autoScrollBtn->setCheckable(true);
     m_autoScrollBtn->setChecked(true);
@@ -67,6 +74,19 @@ void TitleBar::setAutoScrollEnabled(bool enabled)
     m_autoScroll = enabled;
     m_autoScrollBtn->setChecked(enabled);
     updateAutoScrollIcon();
+}
+
+void TitleBar::setConnected(bool connected)
+{
+    m_connected = connected;
+    // Питание вкл. — подключено (зелёный), выкл. — отключено (приглушённый).
+    m_connectBtn->setToolTip(connected ? tr("Отключить источник (освободить порт)")
+                                       : tr("Подключить источник"));
+    m_connectBtn->setStyleSheet(QStringLiteral(
+        "QPushButton { color: %1; border: none; font-size: 14px; }"
+        "QPushButton:hover { background-color: rgba(255,255,255,40); }"
+        "QPushButton:pressed { background-color: rgba(255,255,255,80); }")
+        .arg(connected ? QStringLiteral("#7CDC7C") : QStringLiteral("#999999")));
 }
 
 void TitleBar::mousePressEvent(QMouseEvent *event)

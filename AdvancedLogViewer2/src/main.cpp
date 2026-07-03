@@ -88,6 +88,9 @@ int main(int argc, char *argv[])
     AppController controller(&profileMgr, &settings, &testServer);
     QObject::connect(&controller, &AppController::statusMessage,
                      &app, [](const QString &m) { qInfo("[status] %s", qPrintable(m)); });
+    testServer.setConnectionControl(
+        [&](bool c) { if (c) controller.reconnectSource(); else controller.disconnectSource(); },
+        [&]() { return controller.isConnected(); });
 
     SettingsWindow settingsWin(&profileMgr, &settings);
 

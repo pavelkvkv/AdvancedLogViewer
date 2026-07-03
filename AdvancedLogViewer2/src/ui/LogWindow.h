@@ -27,9 +27,13 @@ public:
     void setWindowFilter(const QString &filter);
     void clearWindowFilter();
 
+public slots:
+    void setConnected(bool connected);
+
 signals:
     void closeRequested();
     void settingsRequested();
+    void connectionToggleRequested();
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;

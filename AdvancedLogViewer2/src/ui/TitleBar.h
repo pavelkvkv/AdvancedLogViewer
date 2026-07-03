@@ -17,6 +17,7 @@ public:
     void setHeaderColor(const QColor &color);
     void setAutoScrollEnabled(bool enabled);
     bool isAutoScrollEnabled() const { return m_autoScroll; }
+    void setConnected(bool connected);
 
     static constexpr int kHeight = 28;
 
@@ -25,6 +26,7 @@ signals:
     void settingsClicked();
     void closeClicked();
     void autoScrollToggled(bool enabled);
+    void connectionToggleClicked();
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
@@ -35,6 +37,7 @@ private:
     QPushButton *makeButton(const QString &text, const QString &tooltip);
 
     QLabel *m_titleLabel;
+    QPushButton *m_connectBtn;
     QPushButton *m_autoScrollBtn;
     QPushButton *m_minimizeBtn;
     QPushButton *m_settingsBtn;
@@ -42,4 +45,5 @@ private:
 
     QColor m_headerColor;
     bool m_autoScroll = true;
+    bool m_connected = true;
 };

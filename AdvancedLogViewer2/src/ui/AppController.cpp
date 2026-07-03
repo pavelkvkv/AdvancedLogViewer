@@ -39,24 +39,26 @@ void AppController::startWatchdog()
     }
     m_wdt = new WatchdogTimer(this);
 
-    // Heartbeat токенов гоняется таймером GUI-потока, а не только приходом
-    // данных: иначе простаивающий (нет трафика по UART) компонент выглядел бы
-    // «зависшим» и WDT завершил бы приложение. Так детектируется реальный
-    // зависон event-loop, но простой не считается сбоем.
-    auto recvToken = m_wdt->registerComponent(QStringLiteral("LogReceiver"), 5000);
-    auto distToken = m_wdt->registerComponent(QStringLiteral("LogDistributor"), 5000);
-    if (m_receiver) {
-        m_receiver->setWdtToken(recvToken);
-    }
-    if (m_distributor) {
-        m_distributor->setWdtToken(distToken);
-    }
+    // LogReceiver сам шлёт heartbeat из своего потока (таймером, см.
+    // LogReceiver::start) — короткий таймаут ловит реальный зависон потока
+    // приёма, а не простой без трафика.
+    m_recvToken = m_wdt->registerComponent(QStringLiteral("LogReceiver"), 5000);
+    // LogDistributor работает в GUI-потоке; heartbeat гоним таймером GUI.
+    // Таймаут щедрый: кратковременные подвисания UI под наплывом логов не
+    // должны убивать приложение — только настоящая заморозка event-loop.
+    m_distToken = m_wdt->registerComponent(QStringLiteral("LogDistributor"), 15000);
 
     m_heartbeatTimer = new QTimer(this);
     m_heartbeatTimer->setInterval(1000);
-    connect(m_heartbeatTimer, &QTimer::timeout, this, [recvToken, distToken]() {
-        recvToken->heartbeat();
-        distToken->heartbeat();
+    connect(m_heartbeatTimer, &QTimer::timeout, this, [this]() {
+        if (m_distToken) {
+            m_distToken->heartbeat();
+        }
+        // Когда источник отключён (приёмника нет) — не даём его токену
+        // «протухнуть», иначе WDT завершит приложение через таймаут.
+        if (!m_pipelineRunning && m_recvToken) {
+            m_recvToken->heartbeat();
+        }
     });
     m_heartbeatTimer->start();
 
@@ -72,6 +74,13 @@ void AppController::ensurePipeline(const ConnectionDef &conn)
     m_activeConnection = conn;
 
     m_distributor = new LogDistributor(this);
+    // При переподключении вернуть маршруты уже открытых окон, чтобы новые
+    // строки снова попадали в их хранилища.
+    for (const auto &ctx : m_windows) {
+        if (ctx.store) {
+            m_distributor->addRoute(ctx.store, ctx.globalFilter);
+        }
+    }
 
     LogReceiver::Config cfg;
     cfg.type = (conn.type.compare(QLatin1String("udp"), Qt::CaseInsensitive) == 0)
@@ -96,9 +105,62 @@ void AppController::ensurePipeline(const ConnectionDef &conn)
             [this](const QString &msg) { emit statusMessage(msg); });
 
     startWatchdog();
+    // Токены переиспользуются между пересборками конвейера — назначаем их
+    // текущим компонентам при каждом ensurePipeline.
+    if (m_recvToken) {
+        m_receiver->setWdtToken(m_recvToken);
+    }
+    if (m_distToken) {
+        m_distributor->setWdtToken(m_distToken);
+    }
 
     m_receiver->start();
     m_pipelineRunning = true;
+    emit connectionStateChanged(true);
+}
+
+void AppController::stopReceiver()
+{
+    if (m_receiver) {
+        m_receiver->stop();
+        delete m_receiver;
+        m_receiver = nullptr;
+    }
+    if (m_distributor) {
+        delete m_distributor;
+        m_distributor = nullptr;
+    }
+    m_pipelineRunning = false;
+}
+
+void AppController::disconnectSource()
+{
+    if (!m_pipelineRunning) {
+        return;
+    }
+    stopReceiver();
+    emit statusMessage(tr("Источник отключён (порт освобождён)"));
+    emit connectionStateChanged(false);
+}
+
+void AppController::reconnectSource()
+{
+    if (m_pipelineRunning) {
+        return;
+    }
+    // Переподключаемся к тому же соединению, что использовалось (надёжнее,
+    // чем перечитывать профиль). ensurePipeline вернёт маршруты открытых окон.
+    ensurePipeline(m_activeConnection);
+    emit statusMessage(tr("Переподключение к источнику"));
+}
+
+void AppController::toggleConnection()
+{
+    if (m_pipelineRunning) {
+        disconnectSource();
+    } else {
+        reconnectSource();
+    }
 }
 
 void AppController::openWindow(const WindowDef &def)
@@ -139,15 +201,21 @@ void AppController::openWindow(const WindowDef &def)
 
     connect(window, &LogWindow::settingsRequested,
             this, &AppController::settingsRequested);
+    connect(window, &LogWindow::connectionToggleRequested,
+            this, &AppController::toggleConnection);
     connect(window, &QObject::destroyed, this, [this, id = def.id]() {
         onWindowClosed(id);
     });
+    // Кнопка подключения в заголовке отражает общее состояние источника.
+    connect(this, &AppController::connectionStateChanged,
+            window, &LogWindow::setConnected);
+    window->setConnected(isConnected());
 
     if (m_testServer) {
         m_testServer->registerWindow(window);
     }
 
-    m_windows.push_back({def.id, store, writer, window});
+    m_windows.push_back({def.id, def.globalFilter, store, writer, window});
     window->show();
     window->raise();
     window->activateWindow();
@@ -158,6 +226,9 @@ void AppController::applyProfile(const QString &profileName)
     teardown();
 
     const Profile p = m_profileMgr->profile(profileName);
+    // Отметить профиль активным, чтобы переподключение и быстрое открытие окон
+    // использовали правильное соединение (важно при автозапуске из main).
+    m_profileMgr->setActiveProfile(profileName);
     ensurePipeline(p.connection);
 
     for (const auto &w : p.windows) {

@@ -87,6 +87,7 @@ private:
     QSerialPort *m_serial = nullptr;
     QUdpSocket *m_udp = nullptr;
     QTimer *m_fallbackTimer = nullptr;
+    QTimer *m_heartbeatTimer = nullptr;
 
     std::optional<QStringDecoder> m_decoder;
 

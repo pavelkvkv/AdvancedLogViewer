@@ -56,6 +56,7 @@ private:
     QWidget *createSettingsTab();
     void loadSettings();
     void saveSettings();
+    void updateLogDirStatus();
 
     // --- Вкладка «О программе» ---
     QWidget *createAboutTab();
@@ -80,6 +81,7 @@ private:
     QComboBox *m_langCombo;
     QComboBox *m_themeCombo;
     QLineEdit *m_logDirEdit;
+    QLabel *m_logDirStatus;
     QSpinBox *m_maxLinesSpin;
     QLabel *m_fontLabel;
     QFont m_selectedFont;

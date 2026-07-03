@@ -54,6 +54,13 @@ void TestServer::registerWindow(LogWindow *window)
     m_windows[window->windowId()] = window;
 }
 
+void TestServer::setConnectionControl(std::function<void(bool)> setConnected,
+                                      std::function<bool()> isConnected)
+{
+    m_setConnected = std::move(setConnected);
+    m_isConnected = std::move(isConnected);
+}
+
 void TestServer::unregisterWindow(const QString &windowId)
 {
     m_windows.remove(windowId);
@@ -102,6 +109,21 @@ QString TestServer::processCommand(const QString &line)
     if (cmd == QLatin1String("quit")) {
         QApplication::quit();
         return QStringLiteral("OK");
+    }
+
+    if (cmd == QLatin1String("disconnect") || cmd == QLatin1String("connect")) {
+        if (!m_setConnected) {
+            return QStringLiteral("ERR: connection control unavailable");
+        }
+        m_setConnected(cmd == QLatin1String("connect"));
+        return QStringLiteral("OK");
+    }
+
+    if (cmd == QLatin1String("connected")) {
+        if (!m_isConnected) {
+            return QStringLiteral("ERR: connection control unavailable");
+        }
+        return QStringLiteral("OK %1").arg(m_isConnected() ? 1 : 0);
     }
 
     if (cmd == QLatin1String("get_line_count")) {

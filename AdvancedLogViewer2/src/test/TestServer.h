@@ -5,6 +5,8 @@
 #include <QMap>
 #include <QObject>
 
+#include <functional>
+
 class LogWindow;
 
 class TestServer : public QObject {
@@ -20,6 +22,10 @@ public:
     void registerWindow(LogWindow *window);
     void unregisterWindow(const QString &windowId);
 
+    // Управление подключением к источнику (для команд disconnect/connect).
+    void setConnectionControl(std::function<void(bool)> setConnected,
+                              std::function<bool()> isConnected);
+
     static QString socketPath();
 
 private:
@@ -29,4 +35,6 @@ private:
 
     QLocalServer *m_server = nullptr;
     QMap<QString, LogWindow *> m_windows;
+    std::function<void(bool)> m_setConnected;
+    std::function<bool()> m_isConnected;
 };
