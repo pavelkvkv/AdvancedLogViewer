@@ -45,6 +45,12 @@ FilterEngine FilterEngine::compile(const QString &expression)
 
 FilterEngine::Predicate FilterEngine::parseToken(const QString &token)
 {
+    // Якорь начала строки "^..." — краткая запись startswith (удобно для
+    // деления по уровню: "^E ", "^D ").
+    if (token.startsWith(QLatin1Char('^')) && token.size() > 1) {
+        return makeStartsWith(token.mid(1));
+    }
+
     // startswith("...")
     QString arg = extractFuncArg(token, QStringLiteral("startswith"));
     if (!arg.isNull()) {

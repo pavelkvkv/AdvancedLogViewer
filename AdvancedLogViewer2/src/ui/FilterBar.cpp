@@ -20,7 +20,12 @@ FilterBar::FilterBar(QWidget *parent)
     layout->addWidget(m_indicator);
 
     m_lineEdit = new QLineEdit(this);
-    m_lineEdit->setPlaceholderText(tr("Фильтр окна..."));
+    m_lineEdit->setPlaceholderText(tr("Фильтр:  ^E — уровень,  *текст* — маска,  a|b — ИЛИ"));
+    m_lineEdit->setToolTip(tr(
+        "^E — строка начинается с (уровень: ^D ^I ^W ^E)\n"
+        "*текст* — маска (* и ?)\n"
+        "startswith() endswith() contains() — функции\n"
+        "a|b — любое из (ИЛИ);  пусто — показать всё"));
     m_lineEdit->setStyleSheet(QStringLiteral(
         "QLineEdit { border: 1px solid #555; border-radius: 2px;"
         " padding: 1px 4px; font-size: 11px; }"));

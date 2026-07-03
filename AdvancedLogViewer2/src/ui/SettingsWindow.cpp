@@ -188,7 +188,8 @@ QWidget *SettingsWindow::createProfileTab()
     auto *winLayout = new QVBoxLayout(winGroup);
     auto *winHint = new QLabel(
         tr("Каждое окно — отдельный вид логов со своим фильтром. "
-           "Двойной клик по ячейке цвета — палитра."));
+           "Фильтр: ^E — по уровню (начало строки), *текст* — маска, "
+           "a|b — ИЛИ, пусто — все строки. Двойной клик по цвету — палитра."));
     winHint->setWordWrap(true);
     winHint->setEnabled(false); // приглушённый пояснительный текст
     winLayout->addWidget(winHint);

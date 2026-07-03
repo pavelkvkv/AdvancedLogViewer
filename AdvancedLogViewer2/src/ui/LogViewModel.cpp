@@ -8,6 +8,8 @@ LogViewModel::LogViewModel(LogStore *store, QObject *parent)
     : QAbstractListModel(parent)
     , m_store(store)
 {
+    // Показываем уже накопленные строки (быстрое открытие окна во время сеанса).
+    m_publishedRows = m_store->lineCount();
     connect(m_store, &LogStore::linesAppended,
             this, &LogViewModel::onLinesAppended,
             Qt::QueuedConnection);
@@ -28,7 +30,7 @@ int LogViewModel::rowCount(const QModelIndex &parent) const
         return static_cast<int>(m_filterIndex.size());
     }
 
-    return static_cast<int>(m_store->lineCount());
+    return static_cast<int>(m_publishedRows);
 }
 
 QVariant LogViewModel::data(const QModelIndex &index, int role) const
@@ -75,41 +77,57 @@ void LogViewModel::clearFilter()
     m_filterExpr.clear();
     m_filter = FilterEngine();
     m_filterIndex.clear();
+    m_filterScanned = 0;
+    // Возврат к показу всех строк — публикуем текущий размер store.
+    m_publishedRows = m_store->lineCount();
     endResetModel();
 }
 
-void LogViewModel::onLinesAppended(size_t from, size_t count)
+void LogViewModel::onLinesAppended(size_t /*from*/, size_t /*count*/)
 {
-    if (!m_filtered) {
-        int first = static_cast<int>(from);
-        int last = static_cast<int>(from + count - 1);
-        beginInsertRows(QModelIndex(), first, last);
-        endInsertRows();
-    } else {
-        // Фильтруем новые строки и добавляем в хвост индекса
-        QReadLocker locker(&m_store->lock());
-        size_t storeSize = m_store->lineCount();
-        size_t end = from + count;
-        if (end > storeSize) {
-            end = storeSize;
-        }
+    // Аргументы from/count не используем: сигнал приходит через очередь и к
+    // моменту обработки может отставать от реального размера LogStore. Берём
+    // фактический размер и публикуем всё, что ещё не показано, — так вставка
+    // всегда согласована с rowCount().
+    QReadLocker locker(&m_store->lock());
+    const size_t storeSize = m_store->lineCount();
+    locker.unlock();
 
-        QVector<size_t> newMatches;
-        for (size_t i = from; i < end; ++i) {
-            QString line = m_store->line(i);
-            if (m_filter.matches(line)) {
+    if (!m_filtered) {
+        if (storeSize <= m_publishedRows) {
+            return; // новых строк нет (или произошло вытеснение)
+        }
+        beginInsertRows(QModelIndex(), static_cast<int>(m_publishedRows),
+                        static_cast<int>(storeSize) - 1);
+        m_publishedRows = storeSize;
+        endInsertRows();
+        return;
+    }
+
+    // Фильтр активен: досканируем хвост store от m_filterScanned и добавим
+    // подходящие строки в конец индекса.
+    if (storeSize <= m_filterScanned) {
+        return;
+    }
+
+    QVector<size_t> newMatches;
+    {
+        QReadLocker l2(&m_store->lock());
+        const size_t cur = m_store->lineCount();
+        for (size_t i = m_filterScanned; i < cur; ++i) {
+            if (m_filter.matches(m_store->line(i))) {
                 newMatches.append(i);
             }
         }
-        locker.unlock();
+        m_filterScanned = cur;
+    }
 
-        if (!newMatches.isEmpty()) {
-            int first = static_cast<int>(m_filterIndex.size());
-            int last = first + static_cast<int>(newMatches.size()) - 1;
-            beginInsertRows(QModelIndex(), first, last);
-            m_filterIndex.append(newMatches);
-            endInsertRows();
-        }
+    if (!newMatches.isEmpty()) {
+        int first = static_cast<int>(m_filterIndex.size());
+        int last = first + static_cast<int>(newMatches.size()) - 1;
+        beginInsertRows(QModelIndex(), first, last);
+        m_filterIndex.append(newMatches);
+        endInsertRows();
     }
 }
 
@@ -117,6 +135,8 @@ void LogViewModel::onFilterFinished(FilterIndex index)
 {
     beginResetModel();
     m_filterIndex = std::move(index);
+    // Воркер просканировал все строки, присутствовавшие на момент завершения.
+    m_filterScanned = m_store->lineCount();
     endResetModel();
     m_currentWorker = nullptr;
     emit filteringFinished();

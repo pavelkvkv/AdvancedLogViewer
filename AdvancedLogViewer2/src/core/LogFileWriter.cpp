@@ -67,11 +67,13 @@ void LogFileWriter::stop()
                 delete m_file;
                 m_file = nullptr;
             }
+            // Возврат аффинности выполняем из рабочего потока (иначе Qt
+            // печатает "Cannot move to target thread").
+            moveToThread(QCoreApplication::instance()->thread());
         }, Qt::BlockingQueuedConnection);
 
         m_thread.quit();
         m_thread.wait();
-        moveToThread(QCoreApplication::instance()->thread());
     }
 }
 

@@ -44,5 +44,13 @@ private:
     FilterEngine m_filter;
     FilterIndex m_filterIndex;
 
+    // Кол-во строк, уже опубликованных во view через begin/endInsertRows
+    // (без фильтра). rowCount() обязан быть согласован с этими сигналами, а не
+    // с «живым» размером LogStore — иначе очередь сигналов linesAppended
+    // рассинхронизируется и Qt ругается «Invalid index».
+    size_t m_publishedRows = 0;
+    // До какого индекса LogStore просканирован для инкрементального фильтра.
+    size_t m_filterScanned = 0;
+
     FilterWorker *m_currentWorker = nullptr;
 };

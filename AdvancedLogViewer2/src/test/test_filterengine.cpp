@@ -70,6 +70,26 @@ private slots:
         QVERIFY(!f.matches(QStringLiteral("file.txt")));
     }
 
+    void testCaretAnchor()
+    {
+        // "^E" — краткая запись startswith; должна ловить только уровень E,
+        // не путая с "E" в середине строки (в отличие от contains).
+        FilterEngine f(QStringLiteral("^E"));
+        QVERIFY(f.matches(QStringLiteral("E (00:00:01:100) error line")));
+        QVERIFY(!f.matches(QStringLiteral("I (00:00:02:200) send CMD DONE")));
+        QVERIFY(!f.matches(QStringLiteral("D (00:00:03:300) debug")));
+    }
+
+    void testCaretAnchorOr()
+    {
+        // Комбинация якорей через ИЛИ: показать W и E.
+        FilterEngine f(QStringLiteral("^W | ^E"));
+        QVERIFY(f.matches(QStringLiteral("W (t) warn")));
+        QVERIFY(f.matches(QStringLiteral("E (t) err")));
+        QVERIFY(!f.matches(QStringLiteral("I (t) info")));
+        QVERIFY(!f.matches(QStringLiteral("D (t) dbg")));
+    }
+
     void testContainsFunc()
     {
         FilterEngine f(QStringLiteral("contains(\"timeout\")"));
