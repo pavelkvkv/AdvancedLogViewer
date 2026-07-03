@@ -23,6 +23,10 @@ public:
 
     QString filterExpression() const { return m_filterExpr; }
 
+signals:
+    void filteringStarted();
+    void filteringFinished();
+
 public slots:
     void onLinesAppended(size_t from, size_t count);
 

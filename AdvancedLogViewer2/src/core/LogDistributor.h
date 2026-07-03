@@ -2,11 +2,13 @@
 
 #include "FilterEngine.h"
 #include "LogStore.h"
+#include "WatchdogTimer.h"
 
 #include <QMutex>
 #include <QObject>
 #include <QString>
 
+#include <memory>
 #include <vector>
 
 class LogDistributor : public QObject {
@@ -20,6 +22,8 @@ public:
         FilterEngine filter;
     };
 
+    void setWdtToken(std::shared_ptr<WatchdogTimer::Token> token) { m_wdtToken = std::move(token); }
+
     void addRoute(LogStore *store, const FilterEngine &filter);
     void addRoute(LogStore *store, const QString &filterExpr);
     void removeRoute(LogStore *store);
@@ -32,4 +36,5 @@ public slots:
 private:
     std::vector<Route> m_routes;
     QMutex m_mutex;
+    std::shared_ptr<WatchdogTimer::Token> m_wdtToken;
 };

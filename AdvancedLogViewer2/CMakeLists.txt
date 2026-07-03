@@ -19,6 +19,10 @@ set(ALV2_CORE_SOURCES
     src/core/LogReceiver.cpp
     src/core/LogFileWriter.cpp
     src/core/FilterWorker.cpp
+    src/core/Profile.cpp
+    src/core/ProfileManager.cpp
+    src/core/Settings.cpp
+    src/core/WatchdogTimer.cpp
     src/ui/LogViewModel.cpp
 )
 
@@ -35,17 +39,26 @@ target_include_directories(alv2_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/core
     ${CMAKE_SOURCE_DIR}/src/ui
+    ${CMAKE_SOURCE_DIR}/src/test
 )
+
+# --- UI library (depends on Widgets; shared between app and UI tests) ---
+set(ALV2_UI_SOURCES
+    src/ui/TitleBar.cpp
+    src/ui/LogDelegate.cpp
+    src/ui/FilterBar.cpp
+    src/ui/LogWindow.cpp
+    src/ui/SettingsWindow.cpp
+    src/ui/AppController.cpp
+    src/test/TestServer.cpp
+)
+
+add_library(alv2_ui STATIC ${ALV2_UI_SOURCES})
+target_link_libraries(alv2_ui PUBLIC alv2_core)
 
 # --- Main executable ---
-set(ALV2_SOURCES
-    src/main.cpp
-)
-
-add_executable(alv2 ${ALV2_SOURCES})
-target_link_libraries(alv2 PRIVATE
-    alv2_core
-)
+add_executable(alv2 src/main.cpp src/i18n/translations.qrc)
+target_link_libraries(alv2 PRIVATE alv2_ui)
 
 # --- Tests ---
 enable_testing()
@@ -73,6 +86,26 @@ add_test(NAME LogFileWriterTest COMMAND test_logfilewriter)
 add_executable(test_logviewmodel src/test/test_logviewmodel.cpp)
 target_link_libraries(test_logviewmodel PRIVATE alv2_core Qt6::Test)
 add_test(NAME LogViewModelTest COMMAND test_logviewmodel)
+
+add_executable(test_profile src/test/test_profile.cpp)
+target_link_libraries(test_profile PRIVATE alv2_core Qt6::Test)
+add_test(NAME ProfileTest COMMAND test_profile)
+
+add_executable(test_settingswindow src/test/test_settingswindow.cpp)
+target_link_libraries(test_settingswindow PRIVATE alv2_ui Qt6::Test)
+add_test(NAME SettingsWindowTest COMMAND test_settingswindow)
+set_tests_properties(SettingsWindowTest PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# --- Smoke test ---
+add_test(
+    NAME SmokeTest
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/smoke_test.sh $<TARGET_FILE:alv2>
+)
+set_tests_properties(SmokeTest PROPERTIES
+    TIMEOUT 30
+    LABELS "smoke"
+)
 
 # --- clang-tidy ---
 set(ALL_SOURCES ${ALV2_SOURCES} ${ALV2_CORE_SOURCES})

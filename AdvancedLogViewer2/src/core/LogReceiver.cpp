@@ -62,14 +62,16 @@ void LogReceiver::stop()
     m_running.store(false);
 
     if (m_thread.isRunning()) {
+        // Возврат аффинности в основной поток нужно выполнить ИЗ рабочего
+        // потока (moveToThread можно вызывать только из потока-владельца),
+        // иначе Qt печатает "Cannot move to target thread".
         QMetaObject::invokeMethod(this, [this]() {
             stopInternal();
+            moveToThread(QCoreApplication::instance()->thread());
         }, Qt::BlockingQueuedConnection);
 
         m_thread.quit();
         m_thread.wait();
-
-        moveToThread(QCoreApplication::instance()->thread());
     }
 }
 
@@ -144,6 +146,11 @@ void LogReceiver::connectToPort(const QString &port)
     m_serial->setStopBits(QSerialPort::OneStop);
 
     if (m_serial->open(QIODevice::ReadOnly)) {
+        // Пассивный слушатель: снимаем DTR/RTS, иначе многие платы (USB-CDC,
+        // Arduino/ESP/STM32 VCP) сбрасываются или искажают вывод при открытии
+        // порта. Без этого данные приходят мусором даже на верном бодрейте.
+        m_serial->setDataTerminalReady(false);
+        m_serial->setRequestToSend(false);
         emit connectionChanged(port, true);
         m_fallbackTimer->start();
     } else {
@@ -159,7 +166,7 @@ void LogReceiver::tryNextPort()
         return;
     }
 
-    m_currentPortIndex = (m_currentPortIndex + 1) % m_config.fallbackPorts.size();
+    m_currentPortIndex = (m_currentPortIndex + 1) % static_cast<int>(m_config.fallbackPorts.size());
     const QString &nextPort = m_config.fallbackPorts.at(m_currentPortIndex);
 
     if (m_config.type == ConnectionType::Uart) {
@@ -180,6 +187,9 @@ void LogReceiver::tryNextPort()
 
 void LogReceiver::onUartReadyRead()
 {
+    if (m_wdtToken) {
+        m_wdtToken->heartbeat();
+    }
     m_fallbackTimer->start(); // Сбросить таймаут — данные поступают
 
     m_buffer.append(m_serial->readAll());
@@ -219,6 +229,9 @@ void LogReceiver::onUartFallbackTimeout()
 
 void LogReceiver::onUdpReadyRead()
 {
+    if (m_wdtToken) {
+        m_wdtToken->heartbeat();
+    }
     m_fallbackTimer->start();
 
     std::vector<QString> batch;
@@ -251,10 +264,10 @@ void LogReceiver::onUdpFallbackTimeout()
 QStringList LogReceiver::parseLinesFromBuffer()
 {
     QStringList result;
-    int pos = 0;
+    qsizetype pos = 0;
 
     while (pos < m_buffer.size()) {
-        int nlPos = m_buffer.indexOf('\n', pos);
+        auto nlPos = m_buffer.indexOf('\n', pos);
         if (nlPos < 0) {
             break;
         }
@@ -287,6 +300,19 @@ QStringList LogReceiver::parseLinesFromBuffer()
     }
 
     m_buffer.remove(0, pos);
+
+    // Защита от неограниченного роста: если накопился большой «хвост» без
+    // разделителя строк — это почти всегда мусор (неверный бодрейт или
+    // бинарный шум). Иначе буфер рос бы бесконечно и WDT убил бы процесс
+    // по превышению памяти. Сбрасываем и сигнализируем.
+    if (m_buffer.size() > kMaxBufferBytes) {
+        m_buffer.clear();
+        emit errorOccurred(
+            QStringLiteral("Отброшен неразделённый буфер > %1 КБ "
+                           "(вероятно, неверный бодрейт)")
+                .arg(kMaxBufferBytes / 1024));
+    }
+
     return result;
 }
 
@@ -308,7 +334,7 @@ LogReceiver::ParsedLine LogReceiver::parseTextLine(const QString &rawLine) const
         return result;
     }
 
-    int closeParen = rawLine.indexOf(QLatin1Char(')'), 3);
+    auto closeParen = rawLine.indexOf(QLatin1Char(')'), 3);
     if (closeParen < 0) {
         return result;
     }

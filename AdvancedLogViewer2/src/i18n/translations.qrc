@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/i18n">
+        <file>alv2_en.qm</file>
+        <file>alv2_ru.qm</file>
+    </qresource>
+</RCC>

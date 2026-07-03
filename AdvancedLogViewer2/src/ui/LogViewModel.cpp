@@ -25,7 +25,7 @@ int LogViewModel::rowCount(const QModelIndex &parent) const
     }
 
     if (m_filtered) {
-        return m_filterIndex.size();
+        return static_cast<int>(m_filterIndex.size());
     }
 
     return static_cast<int>(m_store->lineCount());
@@ -62,6 +62,7 @@ void LogViewModel::setFilter(const QString &filterExpr)
 
     m_filtered = true;
     cancelCurrentWorker();
+    emit filteringStarted();
     startFilterWorker();
 }
 
@@ -103,8 +104,8 @@ void LogViewModel::onLinesAppended(size_t from, size_t count)
         locker.unlock();
 
         if (!newMatches.isEmpty()) {
-            int first = m_filterIndex.size();
-            int last = first + newMatches.size() - 1;
+            int first = static_cast<int>(m_filterIndex.size());
+            int last = first + static_cast<int>(newMatches.size()) - 1;
             beginInsertRows(QModelIndex(), first, last);
             m_filterIndex.append(newMatches);
             endInsertRows();
@@ -118,11 +119,13 @@ void LogViewModel::onFilterFinished(FilterIndex index)
     m_filterIndex = std::move(index);
     endResetModel();
     m_currentWorker = nullptr;
+    emit filteringFinished();
 }
 
 void LogViewModel::onFilterCancelled()
 {
     m_currentWorker = nullptr;
+    emit filteringFinished();
 }
 
 void LogViewModel::startFilterWorker()

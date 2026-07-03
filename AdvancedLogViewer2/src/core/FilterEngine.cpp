@@ -142,8 +142,8 @@ QString FilterEngine::extractFuncArg(const QString &token, const QString &funcNa
         return {};
     }
 
-    int start = funcName.length() + 1;
-    int end = trimmed.length() - 1;
+    auto start = funcName.length() + 1;
+    auto end = trimmed.length() - 1;
     QString inner = trimmed.mid(start, end - start).trimmed();
 
     // Убрать кавычки, если есть

@@ -6,7 +6,10 @@
 #include <QByteArray>
 #include <QStringDecoder>
 
+#include "WatchdogTimer.h"
+
 #include <atomic>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -35,6 +38,7 @@ public:
     void start();
     void stop();
     bool isRunning() const { return m_running.load(); }
+    void setWdtToken(std::shared_ptr<WatchdogTimer::Token> token) { m_wdtToken = std::move(token); }
 
 signals:
     void lineReceived(const QString &line);
@@ -88,10 +92,14 @@ private:
 
     int m_currentPortIndex = -1;
     std::atomic<bool> m_running{false};
+    std::shared_ptr<WatchdogTimer::Token> m_wdtToken;
 
     // Для детекции сбоя бодрейта
     int m_recentLineCount = 0;
     int m_garbageLineCount = 0;
     static constexpr int kBaudrateWindowSize = 200;
     static constexpr double kGarbageThreshold = 0.5;
+
+    // Максимальный размер накопительного буфера без разделителя строк.
+    static constexpr qsizetype kMaxBufferBytes = 1 << 20; // 1 МБ
 };

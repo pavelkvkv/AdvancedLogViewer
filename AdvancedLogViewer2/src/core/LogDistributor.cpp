@@ -48,6 +48,9 @@ void LogDistributor::distribute(const QString &line)
 void LogDistributor::distributeBatch(const std::vector<QString> &lines)
 {
     QMutexLocker locker(&m_mutex);
+    if (m_wdtToken) {
+        m_wdtToken->heartbeat();
+    }
 
     // Для каждого маршрута собираем прошедшие фильтр строки
     for (auto &route : m_routes) {
