@@ -61,6 +61,11 @@ void TestServer::setConnectionControl(std::function<void(bool)> setConnected,
     m_isConnected = std::move(isConnected);
 }
 
+void TestServer::setWindowOpener(std::function<void(const QString &)> opener)
+{
+    m_windowOpener = std::move(opener);
+}
+
 void TestServer::unregisterWindow(const QString &windowId)
 {
     m_windows.remove(windowId);
@@ -124,6 +129,29 @@ QString TestServer::processCommand(const QString &line)
             return QStringLiteral("ERR: connection control unavailable");
         }
         return QStringLiteral("OK %1").arg(m_isConnected() ? 1 : 0);
+    }
+
+    if (cmd == QLatin1String("close_window")) {
+        if (parts.size() < 2) {
+            return QStringLiteral("ERR: usage: close_window <window_id>");
+        }
+        auto *win = m_windows.value(parts[1]);
+        if (!win) {
+            return QStringLiteral("ERR: window not found: %1").arg(parts[1]);
+        }
+        win->close();
+        return QStringLiteral("OK");
+    }
+
+    if (cmd == QLatin1String("open_window")) {
+        if (parts.size() < 2) {
+            return QStringLiteral("ERR: usage: open_window <window_id>");
+        }
+        if (!m_windowOpener) {
+            return QStringLiteral("ERR: window opener unavailable");
+        }
+        m_windowOpener(parts[1]);
+        return QStringLiteral("OK");
     }
 
     if (cmd == QLatin1String("get_geometry")) {

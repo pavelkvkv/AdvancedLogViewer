@@ -69,11 +69,11 @@ void AppController::ensurePipeline(const ConnectionDef &conn)
     m_activeConnection = conn;
 
     m_distributor = new LogDistributor(this);
-    // При переподключении вернуть маршруты уже открытых окон, чтобы новые
-    // строки снова попадали в их хранилища.
-    for (const auto &ctx : m_windows) {
-        if (ctx.store) {
-            m_distributor->addRoute(ctx.store, ctx.globalFilter);
+    // При переподключении вернуть маршруты всех каналов (даже без открытых
+    // окон), чтобы логи снова шли и в хранилища, и в файлы.
+    for (const auto &ch : m_channels) {
+        if (ch.store) {
+            m_distributor->addRoute(ch.store, ch.def.globalFilter);
         }
     }
 
@@ -155,37 +155,52 @@ void AppController::toggleConnection()
     }
 }
 
-void AppController::openWindow(const WindowDef &def)
+AppController::Channel *AppController::findChannel(const QString &id)
 {
-    // Уже открыто — просто поднять на передний план.
-    for (const auto &ctx : m_windows) {
-        if (ctx.id == def.id) {
-            ctx.window->raise();
-            ctx.window->activateWindow();
-            return;
+    for (auto &ch : m_channels) {
+        if (ch.def.id == id) {
+            return &ch;
         }
     }
+    return nullptr;
+}
 
-    const ConnectionDef conn = m_profileMgr->activeProfile().connection;
-    ensurePipeline(conn);
-
+AppController::Channel *AppController::ensureChannel(const WindowDef &def)
+{
+    if (Channel *existing = findChannel(def.id)) {
+        return existing;
+    }
+    // Новый канал: хранилище + маршрут + запись в файл. Живёт независимо от
+    // окна — логи (в т.ч. файловые) идут, даже если окно закрыто.
     auto *store = new LogStore(static_cast<size_t>(m_settings->maxLines()));
-    m_distributor->addRoute(store, def.globalFilter);
-
+    if (m_distributor) {
+        m_distributor->addRoute(store, def.globalFilter);
+    }
     LogFileWriter *writer = nullptr;
     if (!m_settings->logDir().isEmpty()) {
         writer = new LogFileWriter(store, def.globalFilter, m_settings->logDir());
         writer->start();
     }
+    m_channels.push_back({def, store, writer, nullptr});
+    return &m_channels.back();
+}
 
-    auto *window = new LogWindow(store, def);
+void AppController::attachView(Channel &ch)
+{
+    if (ch.window) {
+        ch.window->raise();
+        ch.window->activateWindow();
+        return;
+    }
+
+    auto *window = new LogWindow(ch.store, ch.def);
     window->setAttribute(Qt::WA_DeleteOnClose);
     window->setFont(m_settings->logFont());
 
     // Восстановление геометрии из активного профиля.
     const auto layout = m_profileMgr->activeProfile().layout;
     for (const auto &l : layout) {
-        if (l.windowId == def.id && l.geometry.isValid()) {
+        if (l.windowId == ch.def.id && l.geometry.isValid()) {
             window->setGeometry(l.geometry);
             break;
         }
@@ -195,10 +210,9 @@ void AppController::openWindow(const WindowDef &def)
             this, &AppController::settingsRequested);
     connect(window, &LogWindow::connectionToggleRequested,
             this, &AppController::toggleConnection);
-    connect(window, &QObject::destroyed, this, [this, id = def.id]() {
+    connect(window, &QObject::destroyed, this, [this, id = ch.def.id]() {
         onWindowClosed(id);
     });
-    // Кнопка подключения в заголовке отражает общее состояние источника.
     connect(this, &AppController::connectionStateChanged,
             window, &LogWindow::setConnected);
     window->setConnected(isConnected());
@@ -207,10 +221,39 @@ void AppController::openWindow(const WindowDef &def)
         m_testServer->registerWindow(window);
     }
 
-    m_windows.push_back({def.id, def.globalFilter, store, writer, window});
+    ch.window = window;
     window->show();
     window->raise();
     window->activateWindow();
+}
+
+void AppController::buildChannels(const Profile &profile)
+{
+    for (const auto &w : profile.windows) {
+        ensureChannel(w); // маршруты и запись в файл поднимаются сразу
+    }
+}
+
+void AppController::openWindow(const WindowDef &def)
+{
+    // Нужен работающий конвейер (запустит приём, если отключён/не стартовал).
+    ensurePipeline(m_profileMgr->activeProfile().connection);
+    Channel *ch = ensureChannel(def);
+    attachView(*ch);
+}
+
+void AppController::openWindowById(const QString &id)
+{
+    const Profile p = m_profileMgr->activeProfile();
+    for (const auto &w : p.windows) {
+        if (w.id == id) {
+            openWindow(w);
+            return;
+        }
+    }
+    if (Channel *ch = findChannel(id)) {
+        openWindow(ch->def);
+    }
 }
 
 void AppController::applyProfile(const QString &profileName)
@@ -223,9 +266,12 @@ void AppController::applyProfile(const QString &profileName)
     m_profileMgr->setActiveProfile(profileName);
     ensurePipeline(p.connection);
 
-    for (const auto &w : p.windows) {
-        if (w.visible) {
-            openWindow(w);
+    // Каналы (хранилища + файлы) для ВСЕХ окон таблицы — логи копятся и по
+    // закрытым окнам. Представления открываем для видимых.
+    buildChannels(p);
+    for (auto &ch : m_channels) {
+        if (ch.def.visible) {
+            attachView(ch);
         }
     }
 }
@@ -238,11 +284,11 @@ void AppController::saveLayout()
     }
 
     QVector<WindowLayout> layout;
-    for (const auto &ctx : m_windows) {
-        if (ctx.window) {
+    for (const auto &ch : m_channels) {
+        if (ch.window) {
             WindowLayout l;
-            l.windowId = ctx.id;
-            l.geometry = ctx.window->geometry();
+            l.windowId = ch.def.id;
+            l.geometry = ch.window->geometry();
             layout.append(l);
         }
     }
@@ -251,28 +297,28 @@ void AppController::saveLayout()
     emit statusMessage(tr("Расположение сохранено"));
 }
 
-void AppController::onWindowClosed(const QString &id)
+bool AppController::anyWindowOpen() const
 {
-    for (int i = 0; i < m_windows.size(); ++i) {
-        if (m_windows[i].id == id) {
-            if (m_testServer) {
-                m_testServer->unregisterWindow(id);
-            }
-            if (m_windows[i].writer) {
-                m_windows[i].writer->stop();
-                m_windows[i].writer->deleteLater();
-            }
-            // Окно уже уничтожается (WA_DeleteOnClose); store отдаём вслед.
-            if (m_windows[i].store) {
-                m_distributor->removeRoute(m_windows[i].store);
-                m_windows[i].store->deleteLater();
-            }
-            m_windows.remove(i);
-            break;
+    for (const auto &ch : m_channels) {
+        if (ch.window) {
+            return true;
         }
     }
+    return false;
+}
 
-    if (m_windows.isEmpty()) {
+void AppController::onWindowClosed(const QString &id)
+{
+    // Закрывается только ПРЕДСТАВЛЕНИЕ. Канал (хранилище/маршрут/запись в файл)
+    // остаётся — логи продолжают копиться и писаться на диск.
+    if (Channel *ch = findChannel(id)) {
+        if (m_testServer) {
+            m_testServer->unregisterWindow(id);
+        }
+        ch->window = nullptr;
+    }
+
+    if (!anyWindowOpen()) {
         emit allWindowsClosed();
     }
 }
@@ -284,26 +330,26 @@ void AppController::teardown()
         m_receiver->stop();
     }
 
-    for (auto &ctx : m_windows) {
+    for (auto &ch : m_channels) {
         if (m_testServer) {
-            m_testServer->unregisterWindow(ctx.id);
+            m_testServer->unregisterWindow(ch.def.id);
         }
-        if (ctx.writer) {
-            ctx.writer->stop();
-            delete ctx.writer;
-            ctx.writer = nullptr;
+        if (ch.writer) {
+            ch.writer->stop();
+            delete ch.writer;
+            ch.writer = nullptr;
         }
-        if (ctx.window) {
-            disconnect(ctx.window, nullptr, this, nullptr);
-            delete ctx.window;
-            ctx.window = nullptr;
+        if (ch.window) {
+            disconnect(ch.window, nullptr, this, nullptr);
+            delete ch.window;
+            ch.window = nullptr;
         }
-        if (ctx.store) {
-            delete ctx.store;
-            ctx.store = nullptr;
+        if (ch.store) {
+            delete ch.store;
+            ch.store = nullptr;
         }
     }
-    m_windows.clear();
+    m_channels.clear();
 
     delete m_receiver;
     m_receiver = nullptr;

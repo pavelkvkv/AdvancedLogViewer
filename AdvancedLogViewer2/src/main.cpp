@@ -91,6 +91,7 @@ int main(int argc, char *argv[])
     testServer.setConnectionControl(
         [&](bool c) { if (c) controller.reconnectSource(); else controller.disconnectSource(); },
         [&]() { return controller.isConnected(); });
+    testServer.setWindowOpener([&](const QString &id) { controller.openWindowById(id); });
 
     SettingsWindow settingsWin(&profileMgr, &settings);
 

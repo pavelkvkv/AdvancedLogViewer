@@ -30,7 +30,7 @@ public:
                   TestServer *testServer, QObject *parent = nullptr);
     ~AppController() override;
 
-    bool hasOpenWindows() const { return !m_windows.isEmpty(); }
+    bool hasOpenWindows() const { return anyWindowOpen(); }
 
     bool isConnected() const { return m_receiver != nullptr && m_pipelineRunning; }
 
@@ -39,6 +39,8 @@ public slots:
     void applyProfile(const QString &profileName);
     // Открыть одно окно поверх текущего (или нового) конвейера.
     void openWindow(const WindowDef &def);
+    // Открыть окно по id (определение берётся из профиля/канала).
+    void openWindowById(const QString &id);
     // Сохранить геометрию открытых окон в активный профиль.
     void saveLayout();
     // Освободить UART/сокет, не закрывая окна (логи остаются на экране).
@@ -56,9 +58,12 @@ signals:
     void connectionStateChanged(bool connected);
 
 private:
-    struct WindowCtx {
-        QString id;
-        QString globalFilter; // для пересоздания маршрута при переподключении
+    // Канал = постоянный приёмник логов для одного окна из таблицы профиля:
+    // хранилище + маршрут + запись в файл. Живёт, пока активен профиль, и НЕ
+    // разрушается при закрытии окна — логи продолжают накапливаться. LogWindow
+    // (window) — лишь текущее представление канала (может быть null).
+    struct Channel {
+        WindowDef def;
         LogStore *store = nullptr;
         LogFileWriter *writer = nullptr;
         LogWindow *window = nullptr;
@@ -68,7 +73,12 @@ private:
     void stopReceiver();
     void startWatchdog();
     void teardown();
+    void buildChannels(const Profile &profile);
+    Channel *findChannel(const QString &id);
+    Channel *ensureChannel(const WindowDef &def);
+    void attachView(Channel &ch);
     void onWindowClosed(const QString &id);
+    bool anyWindowOpen() const;
 
     ProfileManager *m_profileMgr;
     Settings *m_settings;
@@ -83,5 +93,5 @@ private:
     ConnectionDef m_activeConnection;
     bool m_pipelineRunning = false;
 
-    QVector<WindowCtx> m_windows;
+    QVector<Channel> m_channels;
 };
