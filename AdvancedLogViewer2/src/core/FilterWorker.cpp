@@ -16,7 +16,7 @@ void FilterWorker::run()
     FilterIndex index;
 
     QReadLocker locker(&m_store->lock());
-    size_t total = m_store->lineCount();
+    size_t total = m_store->lineCountLocked();
     locker.unlock();
 
     index.reserve(static_cast<int>(total / 10)); // Эвристика
@@ -32,7 +32,7 @@ void FilterWorker::run()
 
         QReadLocker blockLocker(&m_store->lock());
         // Проверяем актуальный размер — мог измениться
-        size_t currentSize = m_store->lineCount();
+        size_t currentSize = m_store->lineCountLocked();
         if (currentSize > total) {
             total = currentSize;
         }
@@ -41,7 +41,7 @@ void FilterWorker::run()
         }
 
         for (size_t i = processed; i < blockEnd; ++i) {
-            QString line = m_store->line(i);
+            QString line = m_store->lineLocked(i);
             if (m_filter.matches(line)) {
                 index.append(i);
             }

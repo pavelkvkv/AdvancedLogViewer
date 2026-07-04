@@ -1,8 +1,10 @@
 #include "LogStore.h"
 
+#include <QReadLocker>
 #include <QSignalSpy>
 #include <QTest>
 
+#include <atomic>
 #include <thread>
 #include <vector>
 
@@ -139,6 +141,46 @@ private slots:
         reader.join();
 
         QCOMPARE(store.lineCount(), size_t(numThreads * linesPerThread));
+    }
+
+    // Регресс на взаимную блокировку: читатель, удерживая ОДИН внешний
+    // read-lock, сканирует диапазон через lineCountLocked()/lineLocked()
+    // (как pollAndWrite/FilterWorker), пока писатель добивается write-lock.
+    // Старый код читал под тем же локом через line()/lineCount(), которые
+    // захватывали замок повторно; при ожидающем писателе это вешало
+    // приложение (QReadWriteLock нерекурсивный). Тест должен завершаться,
+    // а не зависать (иначе сработает таймаут ctest).
+    void testConcurrentLockedScanNoDeadlock()
+    {
+        LogStore store;
+        std::atomic<bool> stop{false};
+
+        // Писатель: непрерывно берёт write-lock.
+        std::thread writer([&store, &stop]() {
+            std::vector<QString> batch(8, QStringLiteral("payload"));
+            while (!stop.load()) {
+                store.appendBatch(batch);
+            }
+        });
+
+        // Читатель: под одним внешним read-lock читает много строк подряд
+        // lock-free аксессорами — вложенного захвата быть не должно.
+        for (int iter = 0; iter < 20000; ++iter) {
+            QReadLocker locker(&store.lock());
+            const size_t n = store.lineCountLocked();
+            QString first, last;
+            if (n > 0) {
+                first = store.lineLocked(0);
+                last = store.lineLocked(n - 1);
+            }
+            Q_UNUSED(first);
+            Q_UNUSED(last);
+        }
+
+        stop.store(true);
+        writer.join();
+
+        QVERIFY(store.lineCount() > 0);
     }
 };
 

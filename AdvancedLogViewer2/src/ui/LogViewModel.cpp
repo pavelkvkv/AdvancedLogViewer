@@ -90,7 +90,7 @@ void LogViewModel::onLinesAppended(size_t /*from*/, size_t /*count*/)
     // фактический размер и публикуем всё, что ещё не показано, — так вставка
     // всегда согласована с rowCount().
     QReadLocker locker(&m_store->lock());
-    const size_t storeSize = m_store->lineCount();
+    const size_t storeSize = m_store->lineCountLocked();
     locker.unlock();
 
     if (!m_filtered) {
@@ -113,9 +113,9 @@ void LogViewModel::onLinesAppended(size_t /*from*/, size_t /*count*/)
     QVector<size_t> newMatches;
     {
         QReadLocker l2(&m_store->lock());
-        const size_t cur = m_store->lineCount();
+        const size_t cur = m_store->lineCountLocked();
         for (size_t i = m_filterScanned; i < cur; ++i) {
-            if (m_filter.matches(m_store->line(i))) {
+            if (m_filter.matches(m_store->lineLocked(i))) {
                 newMatches.append(i);
             }
         }

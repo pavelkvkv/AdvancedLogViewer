@@ -81,13 +81,13 @@ void LogFileWriter::pollAndWrite()
 {
     QReadLocker locker(&m_store->lock());
 
-    size_t storeSize = m_store->lineCount();
+    size_t storeSize = m_store->lineCountLocked();
     if (storeSize <= m_lastWrittenLine) {
         return;
     }
 
     for (size_t i = m_lastWrittenLine; i < storeSize; ++i) {
-        QString line = m_store->line(i);
+        QString line = m_store->lineLocked(i);
         m_writeBuffer.append(line.toUtf8());
         m_writeBuffer.append('\n');
     }

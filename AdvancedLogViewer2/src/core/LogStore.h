@@ -27,6 +27,14 @@ public:
     QString line(size_t index) const;
     size_t lineCount() const;
 
+    // Lock-free варианты: вызывающий ОБЯЗАН уже держать lock() для чтения.
+    // Нужны, чтобы читать несколько строк под одним внешним QReadLocker без
+    // повторного (вложенного) захвата замка — вложенный read-lock при
+    // ожидающем писателе приводит к взаимной блокировке (QReadWriteLock
+    // нерекурсивный и не даёт новым читателям войти, пока ждёт писатель).
+    QString lineLocked(size_t index) const;
+    size_t lineCountLocked() const;
+
     void setMaxLines(size_t max);
     size_t maxLines() const;
 

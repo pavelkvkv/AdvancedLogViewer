@@ -62,7 +62,11 @@ void LogStore::appendBatch(const std::vector<QString> &lines)
 QString LogStore::line(size_t index) const
 {
     QReadLocker locker(&m_lock);
+    return lineLocked(index);
+}
 
+QString LogStore::lineLocked(size_t index) const
+{
     if (index >= m_totalLines - m_evictedLines) {
         return {};
     }
@@ -83,6 +87,11 @@ QString LogStore::line(size_t index) const
 size_t LogStore::lineCount() const
 {
     QReadLocker locker(&m_lock);
+    return lineCountLocked();
+}
+
+size_t LogStore::lineCountLocked() const
+{
     return m_totalLines - m_evictedLines;
 }
 
