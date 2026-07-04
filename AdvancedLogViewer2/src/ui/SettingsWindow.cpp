@@ -193,6 +193,15 @@ QWidget *SettingsWindow::createProfileTab()
                           QStringLiteral("cp866")});
     connForm->addRow(tr("Кодировка:"), m_encoding);
 
+    // Кнопка отключения/подключения источника — освобождает порт без закрытия
+    // приложения и без открытых окон логов.
+    m_connToggleBtn = new QPushButton;
+    m_connToggleBtn->setObjectName(QStringLiteral("connToggle"));
+    connect(m_connToggleBtn, &QPushButton::clicked, this,
+            &SettingsWindow::connectionToggleRequested);
+    connForm->addRow(QString(), m_connToggleBtn);
+    setConnected(false); // исходная подпись; фактическое состояние придёт извне
+
     rightPanel->addWidget(connGroup);
 
     // ------------------------- Окна -------------------------
@@ -201,21 +210,25 @@ QWidget *SettingsWindow::createProfileTab()
     auto *winHint = new QLabel(
         tr("Каждое окно — отдельный вид логов со своим фильтром. "
            "Фильтр: ^E — по уровню (начало строки), *текст* — маска, "
-           "a|b — ИЛИ, пусто — все строки. Двойной клик по цвету — палитра."));
+           "a|b — ИЛИ, пусто — все строки. «Прочее» — строки, не попавшие ни в "
+           "одно другое окно (можно отметить только одно). "
+           "Двойной клик по цвету — палитра."));
     winHint->setWordWrap(true);
     winHint->setEnabled(false); // приглушённый пояснительный текст
     winLayout->addWidget(winHint);
 
-    m_windowTable = new QTableWidget(0, 5);
+    m_windowTable = new QTableWidget(0, 6);
     m_windowTable->setObjectName(QStringLiteral("windowTable"));
     m_windowTable->setHorizontalHeaderLabels(
-        {tr("ID"), tr("Заголовок"), tr("Фильтр"), tr("Текст"), tr("Панель")});
+        {tr("ID"), tr("Заголовок"), tr("Фильтр"), tr("Текст"), tr("Панель"),
+         tr("Прочее")});
     auto *hh = m_windowTable->horizontalHeader();
     hh->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     hh->setSectionResizeMode(1, QHeaderView::Stretch);
     hh->setSectionResizeMode(2, QHeaderView::Stretch);
     hh->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     hh->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    hh->setSectionResizeMode(5, QHeaderView::ResizeToContents);
     m_windowTable->verticalHeader()->setVisible(false);
     m_windowTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_windowTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -223,6 +236,9 @@ QWidget *SettingsWindow::createProfileTab()
     // Двойной клик по ячейке цвета открывает палитру.
     connect(m_windowTable, &QTableWidget::cellDoubleClicked, this,
             &SettingsWindow::pickWindowColor);
+    // Эксклюзивность галочки «Прочее»: отметка одной снимает остальные.
+    connect(m_windowTable, &QTableWidget::itemChanged, this,
+            &SettingsWindow::onWindowTableItemChanged);
     winLayout->addWidget(m_windowTable);
 
     auto *winBtns = new QHBoxLayout;
@@ -291,13 +307,48 @@ WindowDef SettingsWindow::windowDefFromRow(int row) const
         auto *item = m_windowTable->item(row, col);
         return item ? item->text() : QString();
     };
-    w.id = cell(0);
-    w.title = cell(1);
-    w.globalFilter = cell(2);
-    w.textColor = QColor(cell(3));
-    w.headerColor = QColor(cell(4));
+    w.id = cell(kColId);
+    w.title = cell(kColTitle);
+    w.globalFilter = cell(kColFilter);
+    w.textColor = QColor(cell(kColText));
+    w.headerColor = QColor(cell(kColPanel));
     w.visible = true;
+    auto *caItem = m_windowTable->item(row, kColCatchAll);
+    w.catchAll = caItem && caItem->checkState() == Qt::Checked;
     return w;
+}
+
+static QTableWidgetItem *makeCatchAllItem(bool checked)
+{
+    auto *item = new QTableWidgetItem;
+    item->setFlags((item->flags() | Qt::ItemIsUserCheckable) &
+                   ~Qt::ItemIsEditable);
+    item->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
+    item->setTextAlignment(Qt::AlignCenter);
+    item->setToolTip(SettingsWindow::tr(
+        "Это окно получает всё, что не попало в другие окна"));
+    return item;
+}
+
+void SettingsWindow::onWindowTableItemChanged(QTableWidgetItem *item)
+{
+    if (m_updatingTable || !item || item->column() != kColCatchAll) {
+        return;
+    }
+    if (item->checkState() != Qt::Checked) {
+        return;
+    }
+    // Эксклюзивно: снять «Прочее» со всех прочих строк.
+    m_updatingTable = true;
+    for (int row = 0; row < m_windowTable->rowCount(); ++row) {
+        if (row == item->row()) {
+            continue;
+        }
+        if (auto *other = m_windowTable->item(row, kColCatchAll)) {
+            other->setCheckState(Qt::Unchecked);
+        }
+    }
+    m_updatingTable = false;
 }
 
 void SettingsWindow::onOpenSelectedWindow()
@@ -337,6 +388,16 @@ void SettingsWindow::onSaveProfile()
     saveSettings();
     m_settings->save();
     refreshProfileList();
+}
+
+void SettingsWindow::setConnected(bool connected)
+{
+    m_connected = connected;
+    m_connToggleBtn->setText(connected ? tr("Отключить источник (освободить порт)")
+                                       : tr("Подключить источник"));
+    m_connToggleBtn->setToolTip(
+        connected ? tr("Закрыть порт, не закрывая приложение и окна логов")
+                  : tr("Открыть порт и возобновить приём"));
 }
 
 void SettingsWindow::selectProfileByName(const QString &name)
@@ -457,15 +518,18 @@ static QTableWidgetItem *makeColorItem(const QColor &color)
 
 void SettingsWindow::refreshWindowTable(const QVector<WindowDef> &windows)
 {
+    m_updatingTable = true;
     m_windowTable->setRowCount(static_cast<int>(windows.size()));
     for (int i = 0; i < windows.size(); ++i) {
         const auto &w = windows[i];
-        m_windowTable->setItem(i, 0, new QTableWidgetItem(w.id));
-        m_windowTable->setItem(i, 1, new QTableWidgetItem(w.title));
-        m_windowTable->setItem(i, 2, new QTableWidgetItem(w.globalFilter));
-        m_windowTable->setItem(i, 3, makeColorItem(w.textColor));
-        m_windowTable->setItem(i, 4, makeColorItem(w.headerColor));
+        m_windowTable->setItem(i, kColId, new QTableWidgetItem(w.id));
+        m_windowTable->setItem(i, kColTitle, new QTableWidgetItem(w.title));
+        m_windowTable->setItem(i, kColFilter, new QTableWidgetItem(w.globalFilter));
+        m_windowTable->setItem(i, kColText, makeColorItem(w.textColor));
+        m_windowTable->setItem(i, kColPanel, makeColorItem(w.headerColor));
+        m_windowTable->setItem(i, kColCatchAll, makeCatchAllItem(w.catchAll));
     }
+    m_updatingTable = false;
 }
 
 QString SettingsWindow::currentPortName() const
@@ -524,14 +588,17 @@ void SettingsWindow::pickWindowColor(int row, int column)
 void SettingsWindow::onAddWindow()
 {
     int row = m_windowTable->rowCount();
+    m_updatingTable = true;
     m_windowTable->insertRow(row);
     QString id = QStringLiteral("window_%1").arg(row);
-    m_windowTable->setItem(row, 0, new QTableWidgetItem(id));
-    m_windowTable->setItem(row, 1, new QTableWidgetItem(tr("Новое окно")));
-    m_windowTable->setItem(row, 2, new QTableWidgetItem(QString()));
-    m_windowTable->setItem(row, 3, makeColorItem(QColor(QStringLiteral("#d0d0d0"))));
-    m_windowTable->setItem(row, 4, makeColorItem(QColor(QStringLiteral("#303030"))));
-    m_windowTable->setCurrentCell(row, 1); // выделить новую строку
+    m_windowTable->setItem(row, kColId, new QTableWidgetItem(id));
+    m_windowTable->setItem(row, kColTitle, new QTableWidgetItem(tr("Новое окно")));
+    m_windowTable->setItem(row, kColFilter, new QTableWidgetItem(QString()));
+    m_windowTable->setItem(row, kColText, makeColorItem(QColor(QStringLiteral("#d0d0d0"))));
+    m_windowTable->setItem(row, kColPanel, makeColorItem(QColor(QStringLiteral("#303030"))));
+    m_windowTable->setItem(row, kColCatchAll, makeCatchAllItem(false));
+    m_updatingTable = false;
+    m_windowTable->setCurrentCell(row, kColTitle); // выделить новую строку
 }
 
 void SettingsWindow::onRemoveWindow()

@@ -73,7 +73,7 @@ void AppController::ensurePipeline(const ConnectionDef &conn)
     // окон), чтобы логи снова шли и в хранилища, и в файлы.
     for (const auto &ch : m_channels) {
         if (ch.store) {
-            m_distributor->addRoute(ch.store, ch.def.globalFilter);
+            m_distributor->addRoute(ch.store, ch.def.globalFilter, ch.def.catchAll);
         }
     }
 
@@ -174,7 +174,7 @@ AppController::Channel *AppController::ensureChannel(const WindowDef &def)
     // окна — логи (в т.ч. файловые) идут, даже если окно закрыто.
     auto *store = new LogStore(static_cast<size_t>(m_settings->maxLines()));
     if (m_distributor) {
-        m_distributor->addRoute(store, def.globalFilter);
+        m_distributor->addRoute(store, def.globalFilter, def.catchAll);
     }
     LogFileWriter *writer = nullptr;
     if (!m_settings->logDir().isEmpty()) {

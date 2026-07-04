@@ -9,15 +9,17 @@ LogDistributor::LogDistributor(QObject *parent)
 {
 }
 
-void LogDistributor::addRoute(LogStore *store, const FilterEngine &filter)
+void LogDistributor::addRoute(LogStore *store, const FilterEngine &filter,
+                             bool catchAll)
 {
     QMutexLocker locker(&m_mutex);
-    m_routes.push_back({store, filter});
+    m_routes.push_back({store, filter, catchAll});
 }
 
-void LogDistributor::addRoute(LogStore *store, const QString &filterExpr)
+void LogDistributor::addRoute(LogStore *store, const QString &filterExpr,
+                             bool catchAll)
 {
-    addRoute(store, FilterEngine::compile(filterExpr));
+    addRoute(store, FilterEngine::compile(filterExpr), catchAll);
 }
 
 void LogDistributor::removeRoute(LogStore *store)
@@ -38,9 +40,22 @@ void LogDistributor::clearRoutes()
 void LogDistributor::distribute(const QString &line)
 {
     QMutexLocker locker(&m_mutex);
+    bool matchedNormal = false;
     for (auto &route : m_routes) {
+        if (route.catchAll) {
+            continue;
+        }
         if (route.filter.isEmpty() || route.filter.matches(line)) {
             route.store->append(line);
+            matchedNormal = true;
+        }
+    }
+    // Строку, не подошедшую ни одному обычному маршруту, отдаём в «прочее».
+    if (!matchedNormal) {
+        for (auto &route : m_routes) {
+            if (route.catchAll) {
+                route.store->append(line);
+            }
         }
     }
 }
@@ -52,21 +67,43 @@ void LogDistributor::distributeBatch(const std::vector<QString> &lines)
         m_wdtToken->heartbeat();
     }
 
-    // Для каждого маршрута собираем прошедшие фильтр строки
-    for (auto &route : m_routes) {
-        if (route.filter.isEmpty()) {
-            route.store->appendBatch(lines);
-        } else {
-            std::vector<QString> matched;
-            matched.reserve(lines.size());
-            for (const auto &line : lines) {
-                if (route.filter.matches(line)) {
-                    matched.push_back(line);
-                }
+    bool hasCatchAll = false;
+    for (const auto &route : m_routes) {
+        if (route.catchAll) {
+            hasCatchAll = true;
+            break;
+        }
+    }
+
+    // Для каждого обычного маршрута собираем подошедшие строки; параллельно
+    // копим строки, не подошедшие ни одному обычному маршруту, — для «прочего».
+    std::vector<std::vector<QString>> matched(m_routes.size());
+    std::vector<QString> elseLines;
+    for (const auto &line : lines) {
+        bool matchedNormal = false;
+        for (size_t i = 0; i < m_routes.size(); ++i) {
+            const auto &route = m_routes[i];
+            if (route.catchAll) {
+                continue;
             }
-            if (!matched.empty()) {
-                route.store->appendBatch(matched);
+            if (route.filter.isEmpty() || route.filter.matches(line)) {
+                matched[i].push_back(line);
+                matchedNormal = true;
             }
+        }
+        if (hasCatchAll && !matchedNormal) {
+            elseLines.push_back(line);
+        }
+    }
+
+    for (size_t i = 0; i < m_routes.size(); ++i) {
+        auto &route = m_routes[i];
+        if (route.catchAll) {
+            if (!elseLines.empty()) {
+                route.store->appendBatch(elseLines);
+            }
+        } else if (!matched[i].empty()) {
+            route.store->appendBatch(matched[i]);
         }
     }
 }

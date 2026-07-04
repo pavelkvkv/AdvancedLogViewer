@@ -20,12 +20,14 @@ public:
     struct Route {
         LogStore *store = nullptr;
         FilterEngine filter;
+        // «Прочее»: получает строки, не подошедшие ни одному обычному маршруту.
+        bool catchAll = false;
     };
 
     void setWdtToken(std::shared_ptr<WatchdogTimer::Token> token) { m_wdtToken = std::move(token); }
 
-    void addRoute(LogStore *store, const FilterEngine &filter);
-    void addRoute(LogStore *store, const QString &filterExpr);
+    void addRoute(LogStore *store, const FilterEngine &filter, bool catchAll = false);
+    void addRoute(LogStore *store, const QString &filterExpr, bool catchAll = false);
     void removeRoute(LogStore *store);
     void clearRoutes();
 

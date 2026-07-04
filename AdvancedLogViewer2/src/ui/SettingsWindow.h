@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QPushButton>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTabWidget>
@@ -22,10 +23,16 @@ public:
     explicit SettingsWindow(ProfileManager *pm, Settings *settings,
                             QWidget *parent = nullptr);
 
+public slots:
+    // Отразить состояние подключения на кнопке в настройках соединения.
+    void setConnected(bool connected);
+
 signals:
     void profileApplied(const QString &profileName);
     void windowOpenRequested(const WindowDef &def);
     void saveLayoutRequested();
+    // Нажата кнопка «Отключить/Подключить источник» в настройках соединения.
+    void connectionToggleRequested();
 
 private:
     // --- Вкладка «Профиль» ---
@@ -49,6 +56,7 @@ private:
     void refreshWindowTable(const QVector<WindowDef> &windows);
     void onAddWindow();
     void onRemoveWindow();
+    void onWindowTableItemChanged(QTableWidgetItem *item);
     void refreshSerialPorts();
     void pickWindowColor(int row, int column);
 
@@ -73,6 +81,8 @@ private:
     QListWidget *m_fallbackList;
     QComboBox *m_baudrate;
     QComboBox *m_encoding;
+    QPushButton *m_connToggleBtn;
+    bool m_connected = false;
 
     // Профиль: правая панель — окна
     QTableWidget *m_windowTable;
@@ -87,4 +97,12 @@ private:
     QFont m_selectedFont;
 
     QString m_currentProfileName;
+    bool m_updatingTable = false; // подавляет реакцию на программное изменение таблицы
+
+    static constexpr int kColId = 0;
+    static constexpr int kColTitle = 1;
+    static constexpr int kColFilter = 2;
+    static constexpr int kColText = 3;
+    static constexpr int kColPanel = 4;
+    static constexpr int kColCatchAll = 5;
 };

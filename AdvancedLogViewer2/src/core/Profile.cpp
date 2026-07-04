@@ -44,6 +44,7 @@ QJsonObject WindowDef::toJson() const
     obj[QStringLiteral("text_color")] = textColor.name();
     obj[QStringLiteral("header_color")] = headerColor.name();
     obj[QStringLiteral("visible")] = visible;
+    obj[QStringLiteral("catch_all")] = catchAll;
     return obj;
 }
 
@@ -56,6 +57,7 @@ WindowDef WindowDef::fromJson(const QJsonObject &obj)
     w.textColor = QColor(obj[QStringLiteral("text_color")].toString(QStringLiteral("#D0D0D0")));
     w.headerColor = QColor(obj[QStringLiteral("header_color")].toString(QStringLiteral("#303030")));
     w.visible = obj[QStringLiteral("visible")].toBool(true);
+    w.catchAll = obj[QStringLiteral("catch_all")].toBool(false);
     return w;
 }
 

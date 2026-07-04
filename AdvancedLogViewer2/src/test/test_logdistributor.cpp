@@ -132,6 +132,39 @@ private slots:
         QCOMPARE(store2.lineCount(), size_t(1));
         QCOMPARE(store3.lineCount(), size_t(0));
     }
+
+    void testCatchAll()
+    {
+        // «Прочее» получает строки, не подошедшие ни одному обычному маршруту.
+        LogStore info;
+        LogStore rest;
+        LogDistributor dist;
+        dist.addRoute(&info, QStringLiteral("^I "));
+        dist.addRoute(&rest, QStringLiteral(""), /*catchAll=*/true);
+
+        dist.distribute(QStringLiteral("I (t) info"));
+        dist.distribute(QStringLiteral("D (t) dbg"));
+        dist.distribute(QStringLiteral("W (t) warn"));
+
+        QCOMPARE(info.lineCount(), size_t(1));
+        QCOMPARE(rest.lineCount(), size_t(2)); // D и W — «прочее»
+        QCOMPARE(rest.line(0), QStringLiteral("D (t) dbg"));
+    }
+
+    void testCatchAllBatch()
+    {
+        LogStore info;
+        LogStore rest;
+        LogDistributor dist;
+        dist.addRoute(&info, QStringLiteral("^I "));
+        dist.addRoute(&rest, QStringLiteral(""), /*catchAll=*/true);
+
+        dist.distributeBatch({QStringLiteral("I (t) a"), QStringLiteral("D (t) b"),
+                              QStringLiteral("I (t) c"), QStringLiteral("E (t) d")});
+
+        QCOMPARE(info.lineCount(), size_t(2)); // 2 инфо
+        QCOMPARE(rest.lineCount(), size_t(2)); // D и E
+    }
 };
 
 QTEST_GUILESS_MAIN(TestLogDistributor)

@@ -24,6 +24,9 @@ struct WindowDef {
     QColor textColor = QColor(0xD0, 0xD0, 0xD0);
     QColor headerColor = QColor(0x30, 0x30, 0x30);
     bool visible = true;
+    // «Прочее»: окно получает строки, не попавшие ни в одно другое окно.
+    // Может быть только у одного окна профиля; фильтр при этом игнорируется.
+    bool catchAll = false;
 
     QJsonObject toJson() const;
     static WindowDef fromJson(const QJsonObject &obj);

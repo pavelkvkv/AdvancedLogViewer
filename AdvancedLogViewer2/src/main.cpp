@@ -104,6 +104,12 @@ int main(int argc, char *argv[])
     // Кнопка «Запомнить текущее расположение».
     QObject::connect(&settingsWin, &SettingsWindow::saveLayoutRequested,
                      &controller, &AppController::saveLayout);
+    // Кнопка «Отключить/Подключить источник» в настройках соединения.
+    QObject::connect(&settingsWin, &SettingsWindow::connectionToggleRequested,
+                     &controller, &AppController::toggleConnection);
+    QObject::connect(&controller, &AppController::connectionStateChanged,
+                     &settingsWin, &SettingsWindow::setConnected);
+    settingsWin.setConnected(controller.isConnected());
 
     // Если после применения профиля не открылось ни одного окна — вернуть
     // окно параметров, иначе приложение осталось бы невидимым (нет трея).
